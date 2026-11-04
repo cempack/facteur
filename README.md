@@ -79,6 +79,7 @@ See [`.env.example`](.env.example). The required variables are `BRIDGE_USER` and
 | `FACTEUR_ADMIN_PASSWORD` | | Approve connections with a password |
 | `FACTEUR_ACCESS_TEAM` / `FACTEUR_ACCESS_AUD` | | Approve connections through Cloudflare Access instead |
 | `FACTEUR_API_TOKEN` | | Static bearer token with every scope (≥ 24 chars) |
+| `FACTEUR_SESSION_DAYS` | `30` | How long a password sign-in lasts on the approval page and dashboard |
 | `FACTEUR_DATA_DIR` | `/data` (image) | OAuth state and audit log |
 | `FACTEUR_MAX_ATTACHMENT_MB` | `15` | Largest attachment returned to the model |
 | `TZ` / `FACTEUR_TIMEZONE` | system | Time zone for dates in tool output |

@@ -33,6 +33,8 @@ export interface Config {
     accessTeam?: string;
     /** Cloudflare Access application audience tag */
     accessAud?: string;
+    /** how long the owner stays signed in on the approval page and dashboard */
+    sessionDays: number;
     /** trust X-Forwarded-For / CF-Connecting-IP (behind Traefik + Cloudflare) */
     trustProxy: boolean;
   };
@@ -104,6 +106,7 @@ export function loadConfig(): Config {
       adminPassword: str("FACTEUR_ADMIN_PASSWORD"),
       accessTeam: str("FACTEUR_ACCESS_TEAM"),
       accessAud: str("FACTEUR_ACCESS_AUD"),
+      sessionDays: Math.max(1, int("FACTEUR_SESSION_DAYS", 30)),
       trustProxy: bool("FACTEUR_TRUST_PROXY", true),
     },
     dataDir: str("FACTEUR_DATA_DIR") ?? "./data",

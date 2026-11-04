@@ -10,10 +10,10 @@ import { sign, unsign } from "./oauth/provider.ts";
  * - With Cloudflare Access (FACTEUR_ACCESS_TEAM + FACTEUR_ACCESS_AUD), the
  *   Access JWT on the request is verified against the team's keys. A
  *   password is never needed.
- * - Otherwise FACTEUR_ADMIN_PASSWORD, exchanged for a signed 12 h cookie.
+ * - Otherwise FACTEUR_ADMIN_PASSWORD, exchanged for a signed cookie that
+ *   lasts FACTEUR_SESSION_DAYS (30 by default).
  */
 export const SESSION_COOKIE = "facteur_owner";
-const SESSION_TTL = 12 * 60 * 60 * 1000;
 
 export type OwnerMode = "access" | "password" | "none";
 
@@ -25,9 +25,11 @@ export class Owner {
   private readonly passwordHash?: Buffer;
   private readonly secret: string;
   private readonly secure: boolean;
+  private readonly sessionMs: number;
 
   constructor(http: Config["http"], secret: string) {
     this.secret = secret;
+    this.sessionMs = http.sessionDays * 86_400_000;
     this.secure = http.publicUrl.startsWith("https://");
     if (http.accessTeam && http.accessAud) {
       this.mode = "access";
@@ -68,12 +70,12 @@ export class Owner {
   }
 
   startSession(res: Response) {
-    res.cookie(SESSION_COOKIE, sign(this.secret, { owner: true }, SESSION_TTL), {
+    res.cookie(SESSION_COOKIE, sign(this.secret, { owner: true }, this.sessionMs), {
       httpOnly: true,
       secure: this.secure,
       sameSite: "lax",
       path: "/",
-      maxAge: SESSION_TTL,
+      maxAge: this.sessionMs,
     });
   }
 
