@@ -10,9 +10,10 @@ import { availableScopes, OPT_IN_SCOPES, type ToolContext } from "../mcp/context
 import { buildServer } from "../mcp/server.ts";
 import { OAuthError, OAuthProvider, sign, unsign, type AuthorizeRequest } from "./oauth/provider.ts";
 import { OAuthStore } from "./oauth/store.ts";
+import { describe as describeActivity } from "./activity.ts";
 import { Connections, connectionsRouter } from "./connections.ts";
 import { Owner } from "./owner.ts";
-import { consentPage, dashboardPage, errorPage, FONT_FILE, FONT_FILE_EXT, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
+import { activityPage, consentPage, dashboardPage, errorPage, FONT_FILE, FONT_FILE_EXT, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
 
 type Deps = Omit<ToolContext, "client" | "scopes">;
 
@@ -163,6 +164,7 @@ export function createApp(cfg: Config, deps: Deps) {
     if (req.body.decision !== "allow") return void res.redirect(302, oauth.deny(request));
     const picked = ([] as string[]).concat(req.body.scope ?? []).filter((s) => request.scopes.includes(s));
     log.info("connection approved", { client: request.client.client_id, name: request.client.client_name, scopes: picked, by: who });
+    if (picked.length) deps.audit.record({ client: request.client.client_name ?? "Unnamed app", tool: "connect", ok: true, scopes: picked });
     res.redirect(302, oauth.approve(request, picked));
   });
 
@@ -218,6 +220,7 @@ export function createApp(cfg: Config, deps: Deps) {
       calendar: deps.calendar,
       bridge: cfg.bridge,
       bridgePasswordFile: join(cfg.dataDir, "bridge", "password"),
+      audit: deps.audit,
       ...(deps.drive && { drive: deps.drive }),
     });
     const guard = async (req: Request, res: Response, post: boolean): Promise<string | undefined> => {
@@ -258,10 +261,27 @@ export function createApp(cfg: Config, deps: Deps) {
     res.send(dashboardPage({ account: deps.mail.account, mcpUrl, owner: who, grants, ownerMode: owner.mode, tokenEnabled: Boolean(cfg.http.apiToken) }));
   });
 
+  app.get("/activity", limiter(120), async (req, res) => {
+    const who = await owner.identify(req);
+    if (!who) {
+      if (owner.mode === "password") return void res.send(loginPage(`/login?next=${encodeURIComponent(req.originalUrl)}`));
+      return void res.status(403).send(errorPage("Not signed in", "Sign in first."));
+    }
+    const all = (await deps.audit.recent(400)).map(describeActivity);
+    const apps = [...new Set(all.filter((i) => i.kind !== "owner").map((i) => i.client))].slice(0, 8);
+    const app_ = typeof req.query.app === "string" ? req.query.app : undefined;
+    const only = typeof req.query.only === "string" ? req.query.only : undefined;
+    const items = all.filter((i) => (app_ ? i.client === app_ && i.kind !== "owner" : only === "sensitive" ? i.sensitive : only === "failed" ? !i.ok : true)).slice(0, 200);
+    const current = app_ ? `app:${app_}` : only;
+    res.send(activityPage({ items, apps, ...(current && { current }), timeZone: cfg.timeZone, owner: { owner: who, signOut: owner.mode === "password" } }));
+  });
+
   app.post("/grants/:id/revoke", limiter(60), async (req, res) => {
     if (!sameOrigin(req, base) || !(await owner.identify(req))) return void res.status(403).send(errorPage("Blocked", "Sign in first."));
+    const grant = store.grants().find((g) => g.id === String(req.params.id));
     store.removeGrant(String(req.params.id));
     log.info("connection revoked from dashboard", { grant: req.params.id });
+    if (grant) deps.audit.record({ client: store.client(grant.client_id)?.client_name ?? "Unnamed app", tool: "disconnect", ok: true });
     res.redirect(303, "/");
   });
 

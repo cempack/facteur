@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Router } from "express";
 import express from "express";
+import type { Audit } from "../audit.ts";
 import type { CalendarService } from "../calendar/service.ts";
 import type { DriveService } from "../drive/service.ts";
 import { log } from "../log.ts";
@@ -46,6 +47,7 @@ export interface ConnectionDeps {
   calendar: CalendarService;
   bridge: Config["bridge"];
   bridgePasswordFile: string;
+  audit: Audit;
 }
 
 export class Connections {
@@ -80,6 +82,7 @@ export class Connections {
     this.runLogin(f, drive.cfg.bin, ["auth", "login"], { ...drive.env() }, drive.cfg.dir, async () => {
       f.status = "done";
       f.message = "Proton Drive is connected.";
+      this.d.audit.record({ client: "owner", tool: "drive_signin", ok: true });
     });
   }
 
@@ -91,6 +94,7 @@ export class Connections {
       c.on("close", () => resolve());
       c.on("error", () => resolve());
     });
+    this.d.audit.record({ client: "owner", tool: "drive_signout", ok: true });
   }
 
   // ---------- Pass ----------
@@ -139,6 +143,7 @@ export class Connections {
           f.status = "done";
           f.message = exists ? "Facteur's Pass agent is renewed for a year." : "Facteur's Pass agent is created (all vaults, can edit) and connected.";
           log.info("pass agent connected from the dashboard", { renewed: exists, newToken: Boolean(token) });
+          this.d.audit.record({ client: "owner", tool: "pass_agent", ok: true, renewed: exists });
         } catch (e) {
           f.status = "failed";
           f.message = (e as Error).message.replace(TOKEN_RE, "pst_***");
@@ -169,14 +174,17 @@ export class Connections {
     renameSync(`${this.d.bridgePasswordFile}.tmp`, this.d.bridgePasswordFile);
     this.d.mailer.reload();
     log.info("bridge password updated from the dashboard");
+    this.d.audit.record({ client: "owner", tool: "bridge_password", ok: true });
   }
 
   addCalendar(name: string, url: string) {
     this.d.calendar.add(name, url);
+    this.d.audit.record({ client: "owner", tool: "calendar_add", ok: true, name });
   }
 
   removeCalendar(name: string) {
     this.d.calendar.remove(name);
+    this.d.audit.record({ client: "owner", tool: "calendar_remove", ok: true, name });
   }
 
   // ---------- shared ----------

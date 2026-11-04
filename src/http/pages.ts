@@ -177,6 +177,21 @@ details[open] summary { margin-bottom: 12px; }
 .form-grid { display: grid; gap: 12px; grid-template-columns: 1fr; margin-top: 16px; }
 @media (min-width: 680px) { .form-grid { grid-template-columns: 200px 1fr auto; align-items: end; } .form-grid .btn { height: 42px; } }
 
+/* activity */
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+.filters a { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); font-size: 13px; font-weight: 550; }
+.filters a:hover { text-decoration: none; color: var(--text); border-color: var(--line-2); }
+.filters a[aria-current="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent); }
+.day { margin: 26px 0 10px; font-size: 13px; font-weight: 600; color: var(--text-3); }
+.day:first-of-type { margin-top: 6px; }
+.event { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; }
+.event .tile { width: 34px; height: 34px; border-radius: 9px; }
+.event .what { font-weight: 560; font-size: 14.5px; overflow-wrap: anywhere; }
+.event .detail { color: var(--text-3); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.event .meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; text-align: right; }
+.event .meta .chip { margin: 0; }
+@media (max-width: 560px) { .event { flex-wrap: wrap; } .event .meta { flex-direction: row; align-items: center; width: 100%; padding-left: 48px; justify-content: flex-start; } }
+
 /* misc */
 .value { margin-top: 16px; padding: 16px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--line-2); font-size: 17px; user-select: all; word-break: break-all; }
 .url-box { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 0 12px; height: 44px; border-radius: 8px; background: var(--bg-deep); border: 1px solid var(--line-2); color: var(--text); overflow-x: auto; white-space: nowrap; }
@@ -190,7 +205,7 @@ details[open] summary { margin-bottom: 12px; }
 
 // ---------- frame ----------
 
-type Tab = "apps" | "connections";
+type Tab = "apps" | "activity" | "connections";
 
 interface PageOpts {
   /** owner pages get the top bar */
@@ -208,6 +223,7 @@ export function page(title: string, body: string, opts: PageOpts = {}): string {
   <a class="brand" href="/">${brand}</a>
   <nav class="tabs" aria-label="Sections">
     <a href="/"${opts.nav.tab === "apps" ? ' aria-current="page"' : ""}>Apps</a>
+    <a href="/activity"${opts.nav.tab === "activity" ? ' aria-current="page"' : ""}>Activity</a>
     <a href="/connections"${opts.nav.tab === "connections" ? ' aria-current="page"' : ""}>Connections</a>
   </nav>
   <div class="who"><span>${esc(opts.nav.owner)}</span>${opts.nav.signOut ? `<a href="/logout" title="Sign out" aria-label="Sign out">${icon("sign-out")}</a>` : ""}</div>
@@ -426,6 +442,74 @@ ${cals}
     `<h1>Connections</h1><p class="lead">The Proton services Facteur signs in to, and what to click when one needs you.</p>
 <div class="services">${mail}${pass}${drive}${calendar}</div>`,
     { nav: { tab: "connections", ...owner }, ...((busy(flows.drive) || busy(flows.pass)) && { refresh: 4 }) },
+  );
+}
+
+// ---------- activity ----------
+
+export interface ActivityRow {
+  time: Date;
+  client: string;
+  icon: string;
+  kind: string;
+  title: string;
+  detail?: string;
+  ok: boolean;
+  sensitive?: boolean;
+}
+
+export function activityPage(o: {
+  items: ActivityRow[];
+  apps: string[];
+  current?: string;
+  timeZone: string;
+  owner: { owner: string; signOut: boolean };
+}): string {
+  const day = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: o.timeZone });
+  const today = day(new Date());
+  const yesterday = day(new Date(Date.now() - 86_400_000));
+  const label = (k: string) =>
+    k === today ? "Today" : k === yesterday ? "Yesterday" : new Date(`${k}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+  const time = (d: Date) => d.toLocaleTimeString("sv-SE", { timeZone: o.timeZone, hour: "2-digit", minute: "2-digit" });
+
+  const filter = (name: string, href: string, on: boolean) => `<a href="${esc(href)}"${on ? ' aria-current="true"' : ""}>${esc(name)}</a>`;
+  const filters = `<nav class="filters" aria-label="Filter">${[
+    filter("Everything", "/activity", !o.current),
+    filter("Needs a look", "/activity?only=sensitive", o.current === "sensitive"),
+    filter("Failed", "/activity?only=failed", o.current === "failed"),
+    ...o.apps.map((a) => filter(a, `/activity?app=${encodeURIComponent(a)}`, o.current === `app:${a}`)),
+  ].join("")}</nav>`;
+
+  if (!o.items.length) {
+    return page(
+      "Activity · Facteur",
+      `<h1>Activity</h1><p class="lead">What AI apps changed, sent or revealed, newest first.</p>${filters}
+<div class="panel empty"><div class="tile">${icon("clock-counter-clockwise")}</div><p style="color:var(--text-2);font-weight:600">Nothing here yet</p><p class="small" style="margin-top:4px">Sends, moves, deletes, Pass reveals and Drive changes show up here as they happen.</p></div>`,
+      { nav: { tab: "activity", ...o.owner } },
+    );
+  }
+
+  const groups = new Map<string, ActivityRow[]>();
+  for (const it of o.items) {
+    const k = day(it.time);
+    groups.set(k, [...(groups.get(k) ?? []), it]);
+  }
+  const rows = [...groups]
+    .map(
+      ([k, items]) => `<h2 class="day">${esc(label(k))}</h2><div class="panel divided" style="padding:2px 20px">${items
+        .map((it) => {
+          const tone = !it.ok ? "flare" : it.sensitive ? "ember" : it.kind === "owner" ? "" : "accent";
+          return `<div class="event"><div class="tile ${tone}">${icon(it.icon, "ic-sm")}</div>
+<div class="grow"><p class="what">${esc(it.title)}</p>${it.detail ? `<p class="detail">${esc(it.detail)}</p>` : ""}</div>
+<div class="meta"><span class="mono muted">${esc(time(it.time))}</span>${it.kind === "owner" ? "" : `<span class="chip">${esc(it.client)}</span>`}</div></div>`;
+        })
+        .join("")}</div>`,
+    )
+    .join("");
+  return page(
+    "Activity · Facteur",
+    `<h1>Activity</h1><p class="lead">What AI apps changed, sent or revealed, newest first. Reading mail isn't listed; everything that changes something is.</p>${filters}${rows}`,
+    { nav: { tab: "activity", ...o.owner } },
   );
 }
 
