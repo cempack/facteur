@@ -38,6 +38,10 @@ export const SCOPE_TEXT: Record<string, { title: string; detail: string }> = {
   "mail.read": { title: "Read your mail", detail: "List mailboxes, search, read messages, threads and attachments." },
   "mail.write": { title: "Organize your mail and write drafts", detail: "Mark read/starred, move, label, trash or delete, manage folders and labels, save drafts." },
   "mail.send": { title: "Send mail as you", detail: "Send new emails, replies and forwards from your addresses." },
+  "pass.read": { title: "Look up Proton Pass items", detail: "Find items and see their non-secret details: titles, usernames, websites. Secrets stay hidden; it can only send you a one-time link to see one." },
+  "pass.reveal": { title: "See Pass secrets (passwords, 2FA codes, notes)", detail: "Only for apps you trust with your vault. Each reveal is logged here and in Proton Pass." },
+  "pass.write": { title: "Create and edit Pass items", detail: "Save new logins, change fields, move items to the Pass trash. Never deletes permanently." },
+  "calendar.read": { title: "Read your calendar", detail: "Events from your shared Proton calendars (read-only)." },
 };
 
 export function loginPage(action: string, error?: string): string {
@@ -56,13 +60,16 @@ export function consentPage(o: {
   redirectHost: string;
   account: string;
   scopes: string[];
+  /** listed but unticked: the owner has to choose them */
+  optIn: string[];
   form: string;
   owner: string;
 }): string {
   const boxes = o.scopes
     .map((s) => {
       const t = SCOPE_TEXT[s] ?? { title: s, detail: "" };
-      return `<label class="scope"><input type="checkbox" name="scope" value="${esc(s)}" checked><span><strong>${esc(t.title)}</strong><br><span class="muted">${esc(t.detail)}</span></span></label>`;
+      const checked = o.optIn.includes(s) ? "" : " checked";
+      return `<label class="scope"><input type="checkbox" name="scope" value="${esc(s)}"${checked}><span><strong>${esc(t.title)}</strong><br><span class="muted">${esc(t.detail)}</span></span></label>`;
     })
     .join("");
   return page(
@@ -76,6 +83,25 @@ export function consentPage(o: {
 <div class="row"><button class="primary" type="submit" name="decision" value="allow">Allow</button>
 <button type="submit" name="decision" value="deny">Deny</button></div></form>
 <p class="muted" style="margin-top:20px">Signed in as ${esc(o.owner)}. You can disconnect it any time from this server's home page.</p>`,
+  );
+}
+
+export function revealConfirmPage(o: { title: string; field: string; client: string; reason: string; action: string }): string {
+  return page(
+    "Reveal · Facteur",
+    `<h1>Show ${esc(o.field)} of “${esc(o.title)}”?</h1>
+<p><strong>${esc(o.client)}</strong> asked for it: <em>${esc(o.reason)}</em></p>
+<p class="muted">It's shown only to you, on this page, once. The app doesn't see it.</p>
+<form method="post" action="${esc(o.action)}"><div class="row"><button class="primary" type="submit">Show it</button></div></form>`,
+  );
+}
+
+export function revealPage(o: { title: string; field: string; value: string }): string {
+  return page(
+    "Reveal · Facteur",
+    `<h1>${esc(o.field)} of “${esc(o.title)}”</h1>
+<p><input type="text" readonly value="${esc(o.value)}" style="width:100%;font:15px ui-monospace,monospace;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"></p>
+<p class="muted">This link has now been used. Close the tab when you're done.</p>`,
   );
 }
 

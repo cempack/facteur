@@ -2,22 +2,42 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Audit } from "../audit.ts";
 import type { Config } from "../config.ts";
+import type { CalendarService } from "../calendar/service.ts";
 import type { Mailer } from "../mail/send.ts";
 import type { MailService } from "../mail/service.ts";
+import type { RevealStore } from "../pass/reveal.ts";
+import type { PassService } from "../pass/service.ts";
 
 export const SCOPES = {
   read: "mail.read",
   write: "mail.write",
   send: "mail.send",
+  passRead: "pass.read",
+  passReveal: "pass.reveal",
+  passWrite: "pass.write",
+  calendarRead: "calendar.read",
 } as const;
 export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
-export const ALL_SCOPES: Scope[] = [SCOPES.read, SCOPES.write, SCOPES.send];
+
+/** scopes the consent page leaves unticked unless the owner ticks them */
+export const OPT_IN_SCOPES: string[] = [SCOPES.passReveal];
+
+/** what this server can grant, given which Proton services are set up */
+export function availableScopes(cfg: Config): string[] {
+  const out: string[] = [SCOPES.read, SCOPES.write, SCOPES.send];
+  if (cfg.pass) out.push(SCOPES.passRead, SCOPES.passReveal, SCOPES.passWrite);
+  if (cfg.calendars.length) out.push(SCOPES.calendarRead);
+  return out;
+}
 
 export interface ToolContext {
   mail: MailService;
   mailer: Mailer;
   cfg: Config;
   audit: Audit;
+  pass?: PassService;
+  reveals?: RevealStore;
+  calendar?: CalendarService;
   /** who is calling: an OAuth client id, "api-token" or "stdio" */
   client: string;
   scopes: Set<string>;

@@ -64,13 +64,15 @@ export class OAuthProvider {
   readonly resource: string;
   readonly scopes: string[];
   private readonly apiTokenHash?: string;
+  private readonly apiTokenScopes: string[];
 
-  constructor(opts: { store: OAuthStore; issuer: string; resource: string; scopes: string[]; apiToken?: string }) {
+  constructor(opts: { store: OAuthStore; issuer: string; resource: string; scopes: string[]; apiToken?: string; apiTokenScopes?: string[] }) {
     this.store = opts.store;
     this.issuer = opts.issuer;
     this.resource = opts.resource;
     this.scopes = opts.scopes;
     if (opts.apiToken) this.apiTokenHash = hash(opts.apiToken);
+    this.apiTokenScopes = (opts.apiTokenScopes ?? opts.scopes).filter((s) => opts.scopes.includes(s));
   }
 
   metadata() {
@@ -297,7 +299,7 @@ export class OAuthProvider {
   verify(accessToken: string): VerifiedToken | undefined {
     const h = hash(accessToken);
     if (this.apiTokenHash && sameHash(h, this.apiTokenHash)) {
-      return { clientId: "api-token", scopes: [...this.scopes], resource: this.resource };
+      return { clientId: "api-token", scopes: [...this.apiTokenScopes], resource: this.resource };
     }
     const now = Date.now();
     const grant = this.store.grants().find((g) => sameHash(g.access_hash, h));

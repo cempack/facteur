@@ -1,11 +1,13 @@
 # Facteur
 
-An [MCP](https://modelcontextprotocol.io) server for a **Proton Mail** account. It lets Claude, ChatGPT, Cursor or any MCP client read, search, organize and send your mail through [Proton Mail Bridge](https://proton.me/mail/bridge).
+An [MCP](https://modelcontextprotocol.io) server for a **Proton** account. Claude, ChatGPT, Cursor or any MCP client can use it to read, search, organize and send your **Mail** through [Proton Mail Bridge](https://proton.me/mail/bridge), look up and manage **Pass** items through Proton's official [`pass-cli`](https://protonpass.github.io/pass-cli/), and read your **Calendar**.
 
 *Facteur* is French for postman.
 
 ```
-AI app ──HTTPS + OAuth──▶ Facteur ──IMAP/SMTP (private network)──▶ Proton Mail Bridge ──▶ Proton
+AI app ──HTTPS + OAuth──▶ Facteur ─┬─ IMAP/SMTP (private network) ──▶ Proton Mail Bridge
+                                   ├─ pass-cli, signed in as a Pass agent ──▶ Proton Pass
+                                   └─ calendar share links (ICS, read-only) ──▶ Proton Calendar
 ```
 
 - **Remote server with built-in OAuth 2.1.** Add the URL as a custom connector in claude.ai, the Claude apps, ChatGPT or Claude Code, then approve it once in your browser. A static token also works for scripts.
@@ -32,6 +34,27 @@ AI app ──HTTPS + OAuth──▶ Facteur ──IMAP/SMTP (private network)─
 | `forward_email` | send* | Forward with the original attachments, or save as a draft |
 | `send_draft` | send | Send a saved draft |
 
+### Proton Pass (only when `PROTON_PASS_AGENT_TOKEN` is set)
+
+| Tool | Scope | What it does |
+|---|---|---|
+| `pass_list_vaults` | pass.read | Vaults shared with Facteur's agent |
+| `pass_search` | pass.read | Find items by title, username, email or website, optionally by vault or type. Non-secret fields only |
+| `pass_get_item` | pass.read | One item's non-secret details, plus the *names* of its secret fields |
+| `pass_reveal` | pass.read / pass.reveal | With `pass.reveal`: a password, 2FA code, note or hidden field. Without it: a one-time link the user opens to see the value themselves. A reason is always required and is logged by Proton |
+| `pass_generate_password` | pass.read | Random password or passphrase |
+| `pass_create_login` | pass.write | Save a login, with a generated password by default |
+| `pass_update_item` | pass.write | Change fields (`password: "generate"` rotates it) |
+| `pass_trash_item` | pass.write | Move to the Pass trash, or restore. Never deletes permanently |
+
+### Proton Calendar (only when `FACTEUR_CALENDARS` is set)
+
+| Tool | Scope | What it does |
+|---|---|---|
+| `calendar_events` | calendar.read | Events between two dates (`today`, `+7d`, `2026-12-01`...), recurring ones expanded, searchable |
+
+Proton Calendar has no API or CalDAV, so this is read-only, through each calendar's share link.
+
 The bulk tools (`mark`, `move`, `label`, `delete`) take either `ids` or a `search`, so "archive every newsletter from last month" is one call. A `max` guard refuses searches that match more than expected.
 
 Prompts are included for clients that support them: `triage_inbox`, `summarize_unread`, `draft_reply` and `clean_up_newsletters`.
@@ -46,6 +69,7 @@ Facteur holds the keys to a mailbox, so it is built to be safe to expose:
 - **Only the owner can approve a connection.** The consent page sits behind Cloudflare Access, where the server verifies the Access JWT itself, or behind an admin password. Approving shows the app's name and where it sends you back, and lets you untick permissions. PKCE (S256) is mandatory, redirect URIs must match exactly, and the authorization codes are single-use and last 5 minutes.
 - **Connections can be revoked at any time** from the dashboard at `/`.
 - **Every change is audited.** Each move, delete, label, draft and send is appended to `/data/audit.jsonl` with the app, the message ids, and for sends the recipients and subject (never the body).
+- **Pass secrets are opt-in, per app.** Facteur signs in to Pass as a [Pass agent](https://protonpass.github.io/pass-cli/): a token limited to the vaults you choose, revocable from Pass, with Proton's own audit log (`pass-cli agent monitor facteur`). Item lists and details never contain secret values. Values come only from `pass_reveal`, which needs the `pass.reveal` scope (unticked on the consent page) and a reason that Proton records. Apps without that scope get a one-time link (single use, 10 minutes, behind your sign-in), and the value goes from Pass to your screen without passing through the AI. The static API token can't reveal unless `FACTEUR_API_TOKEN_SCOPES` says so. `pass-cli` runs with argument arrays (no shell). New passwords go over stdin, never on the command line. The session lives in a private directory that isn't persisted.
 - **Email content is treated as untrusted.** Bodies and attachments are wrapped in `<email_body untrusted>` markers. The server's instructions tell the model never to act on instructions found in mail, and to draft rather than send when unsure. The send tools are annotated as destructive and open-world, so clients ask before running them.
 - **Sending is limited to your own addresses.** Mail can only go out from the addresses in `FACTEUR_FROM`.
 - **Hardened HTTP.** Responses have a strict CSP with no scripts and no framing. Requests are rate-limited per IP, forms are same-origin only, and session cookies are `HttpOnly` with `SameSite=Lax`. The container runs as the unprivileged `node` user.
@@ -78,7 +102,10 @@ See [`.env.example`](.env.example). The required variables are `BRIDGE_USER` and
 | `FACTEUR_PUBLIC_URL` | `http://localhost:8080` | Public origin, also the OAuth issuer |
 | `FACTEUR_ADMIN_PASSWORD` | | Approve connections with a password |
 | `FACTEUR_ACCESS_TEAM` / `FACTEUR_ACCESS_AUD` | | Approve connections through Cloudflare Access instead |
-| `FACTEUR_API_TOKEN` | | Static bearer token with every scope (≥ 24 chars) |
+| `FACTEUR_API_TOKEN` | | Static bearer token (≥ 24 chars) |
+| `FACTEUR_API_TOKEN_SCOPES` | all but `pass.reveal` | What the static token may do |
+| `PROTON_PASS_AGENT_TOKEN` | | Pass agent token (`pst_…::…`), turns Pass on |
+| `FACTEUR_CALENDARS` | | `Name\|https://…ics, Other\|https://…ics` calendar share links, turns Calendar on |
 | `FACTEUR_SESSION_DAYS` | `30` | How long a password sign-in lasts on the approval page and dashboard |
 | `FACTEUR_DATA_DIR` | `/data` (image) | OAuth state and audit log |
 | `FACTEUR_MAX_ATTACHMENT_MB` | `15` | Largest attachment returned to the model |
@@ -86,6 +113,21 @@ See [`.env.example`](.env.example). The required variables are `BRIDGE_USER` and
 | `FACTEUR_TRANSPORT` | `http` | `stdio` for a local, single-user process |
 
 `GET /healthz` checks the process, and `GET /healthz?deep` also checks the IMAP connection.
+
+### Proton Pass
+
+With `pass-cli` signed in as yourself (`pass-cli login`), create an agent that sees only the vaults you choose, then give its token to Facteur:
+
+```sh
+pass-cli agent create --expiration 1y --vault Personal --vault Work facteur      # prints pst_…::…
+pass-cli agent access grant facteur --vault-name Personal --role editor           # only if it may edit
+```
+
+Renew it before it expires with `pass-cli agent renew --expiration 1y facteur`. See what it accessed with `pass-cli agent monitor facteur`.
+
+### Proton Calendar
+
+In Proton Calendar, go to Settings → Calendars → your calendar → Share → **Share with anyone** (full view) and copy the link. The link contains the key to the calendar, so treat it as a secret.
 
 ### Behind Cloudflare Access (recommended)
 

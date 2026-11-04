@@ -6,12 +6,12 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import { join } from "node:path";
 import type { Config } from "../config.ts";
 import { log } from "../log.ts";
-import { ALL_SCOPES, type ToolContext } from "../mcp/context.ts";
+import { availableScopes, OPT_IN_SCOPES, type ToolContext } from "../mcp/context.ts";
 import { buildServer } from "../mcp/server.ts";
 import { OAuthError, OAuthProvider, sign, unsign, type AuthorizeRequest } from "./oauth/provider.ts";
 import { OAuthStore } from "./oauth/store.ts";
 import { Owner } from "./owner.ts";
-import { consentPage, dashboardPage, errorPage, loginPage } from "./pages.ts";
+import { consentPage, dashboardPage, errorPage, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
 
 type Deps = Omit<ToolContext, "client" | "scopes">;
 
@@ -20,7 +20,10 @@ export function createApp(cfg: Config, deps: Deps) {
   const mcpUrl = `${base}/mcp`;
   const prmUrl = `${base}/.well-known/oauth-protected-resource/mcp`;
   const store = new OAuthStore(join(cfg.dataDir, "oauth.json"));
-  const oauth = new OAuthProvider({ store, issuer: base, resource: mcpUrl, scopes: ALL_SCOPES, apiToken: cfg.http.apiToken });
+  const scopes = availableScopes(cfg);
+  // the static token can't read Pass secrets unless FACTEUR_API_TOKEN_SCOPES says so
+  const apiTokenScopes = cfg.http.apiTokenScopes ?? scopes.filter((s) => !OPT_IN_SCOPES.includes(s));
+  const oauth = new OAuthProvider({ store, issuer: base, resource: mcpUrl, scopes, apiToken: cfg.http.apiToken, apiTokenScopes });
   const owner = new Owner(cfg.http, store.secret);
 
   const app = express();
@@ -58,7 +61,7 @@ export function createApp(cfg: Config, deps: Deps) {
   const prm = {
     resource: mcpUrl,
     authorization_servers: [base],
-    scopes_supported: ALL_SCOPES,
+    scopes_supported: scopes,
     bearer_methods_supported: ["header"],
     resource_name: "Facteur (Proton Mail)",
   };
@@ -127,6 +130,7 @@ export function createApp(cfg: Config, deps: Deps) {
         redirectHost: hostOf(request.redirectUri),
         account: deps.mail.account,
         scopes: request.scopes,
+        optIn: OPT_IN_SCOPES,
         form: signed,
         owner: who,
       }),
@@ -166,6 +170,32 @@ export function createApp(cfg: Config, deps: Deps) {
   app.get("/logout", (_req, res) => {
     owner.endSession(res);
     res.redirect(303, "/");
+  });
+
+  // ---------- one-time secret reveal (Pass, for apps that may not see secrets) ----------
+  app.get("/reveal/:id", limiter(60), async (req, res) => {
+    const who = await owner.identify(req);
+    if (!who) {
+      if (owner.mode === "password") return void res.send(loginPage(`/login?next=${encodeURIComponent(req.originalUrl)}`));
+      return void res.status(403).send(errorPage("Not signed in", "Sign in first."));
+    }
+    const r = deps.reveals?.peek(String(req.params.id));
+    if (!r) return void res.status(404).send(errorPage("Link expired", "This link was already used or is older than 10 minutes. Ask again."));
+    res.send(revealConfirmPage({ title: r.title, field: r.field, client: r.client, reason: r.reason, action: `/reveal/${encodeURIComponent(String(req.params.id))}` }));
+  });
+
+  app.post("/reveal/:id", limiter(30), async (req, res) => {
+    if (!sameOrigin(req, base) || !(await owner.identify(req))) return void res.status(403).send(errorPage("Blocked", "Sign in first."));
+    const r = deps.reveals?.take(String(req.params.id));
+    if (!r || !deps.pass) return void res.status(404).send(errorPage("Link expired", "This link was already used or is older than 10 minutes. Ask again."));
+    try {
+      const reason = `owner viewing it on the Facteur page, asked by ${r.client} (${r.reason})`;
+      const value = /^(totp|2fa|otp|mfa)$/i.test(r.field) ? (await deps.pass.totp(r.ref, reason)).code : await deps.pass.field(r.ref, r.field, reason);
+      deps.audit.record({ client: r.client, tool: "pass_reveal", ok: true, mode: "owner-page", field: r.field, title: r.title });
+      res.send(revealPage({ title: r.title, field: r.field, value }));
+    } catch (e) {
+      res.status(502).send(errorPage("Couldn't read it", (e as Error).message));
+    }
   });
 
   // ---------- dashboard ----------

@@ -1,3 +1,4 @@
+import { parseSources, type CalendarSource } from "./calendar/service.ts";
 import { parseAddressList, type Address } from "./mail/address.ts";
 
 /**
@@ -25,8 +26,10 @@ export interface Config {
     port: number;
     /** public origin, e.g. https://facteur.elliotmoreau.fr */
     publicUrl: string;
-    /** a static bearer token with every scope, for scripts and CLI clients */
+    /** a static bearer token, for scripts and CLI clients */
     apiToken?: string;
+    /** what the static token may do (default: everything except pass.reveal) */
+    apiTokenScopes?: string[];
     /** password for the OAuth consent page, when Cloudflare Access isn't set up */
     adminPassword?: string;
     /** Cloudflare Access team domain (e.g. "elliot" for elliot.cloudflareaccess.com) */
@@ -38,6 +41,10 @@ export interface Config {
     /** trust X-Forwarded-For / CF-Connecting-IP (behind Traefik + Cloudflare) */
     trustProxy: boolean;
   };
+  /** Proton Pass through pass-cli, when PROTON_PASS_AGENT_TOKEN is set */
+  pass?: { token: string; bin: string; sessionDir: string };
+  /** Proton Calendar share links (read-only ICS) */
+  calendars: CalendarSource[];
   dataDir: string;
   /** dates in tool output are shown in this IANA time zone */
   timeZone: string;
@@ -103,17 +110,27 @@ export function loadConfig(): Config {
       port,
       publicUrl,
       apiToken: str("FACTEUR_API_TOKEN"),
+      ...(str("FACTEUR_API_TOKEN_SCOPES") && { apiTokenScopes: str("FACTEUR_API_TOKEN_SCOPES")!.split(/[\s,]+/).filter(Boolean) }),
       adminPassword: str("FACTEUR_ADMIN_PASSWORD"),
       accessTeam: str("FACTEUR_ACCESS_TEAM"),
       accessAud: str("FACTEUR_ACCESS_AUD"),
       sessionDays: Math.max(1, int("FACTEUR_SESSION_DAYS", 30)),
       trustProxy: bool("FACTEUR_TRUST_PROXY", true),
     },
+    ...(str("PROTON_PASS_AGENT_TOKEN") && {
+      pass: {
+        token: str("PROTON_PASS_AGENT_TOKEN")!,
+        bin: str("PROTON_PASS_CLI") ?? "pass-cli",
+        sessionDir: str("PROTON_PASS_SESSION_DIR") ?? "/tmp/facteur-pass",
+      },
+    }),
+    calendars: parseSources(process.env.FACTEUR_CALENDARS),
     dataDir: str("FACTEUR_DATA_DIR") ?? "./data",
     timeZone: str("FACTEUR_TIMEZONE") ?? str("TZ") ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
     maxAttachmentBytes: int("FACTEUR_MAX_ATTACHMENT_MB", 15) * 1024 * 1024,
   };
 
+  if (cfg.pass && !/^pst_[^:]+::.+$/.test(cfg.pass.token)) throw new Error("PROTON_PASS_AGENT_TOKEN must look like pst_<token>::<key>");
   if (cfg.http.apiToken && cfg.http.apiToken.length < 24) throw new Error("FACTEUR_API_TOKEN must be at least 24 characters");
   if (Boolean(cfg.http.accessTeam) !== Boolean(cfg.http.accessAud)) throw new Error("set both FACTEUR_ACCESS_TEAM and FACTEUR_ACCESS_AUD, or neither");
   return cfg;

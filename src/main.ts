@@ -1,9 +1,12 @@
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { Audit } from "./audit.ts";
+import { CalendarService } from "./calendar/service.ts";
+import { RevealStore } from "./pass/reveal.ts";
+import { PassService } from "./pass/service.ts";
 import { loadConfig } from "./config.ts";
 import { createApp } from "./http/app.ts";
 import { log } from "./log.ts";
-import { ALL_SCOPES } from "./mcp/context.ts";
+import { availableScopes } from "./mcp/context.ts";
 import { buildServer, SERVER_VERSION } from "./mcp/server.ts";
 import { Mailer } from "./mail/send.ts";
 import { MailService } from "./mail/service.ts";
@@ -12,13 +15,20 @@ const cfg = loadConfig();
 const mail = new MailService(cfg);
 const mailer = new Mailer(cfg.bridge, cfg.identities[0]!);
 const audit = new Audit(cfg.dataDir);
-const deps = { mail, mailer, cfg, audit };
+const deps = {
+  mail,
+  mailer,
+  cfg,
+  audit,
+  ...(cfg.pass && { pass: new PassService(cfg.pass), reveals: new RevealStore() }),
+  ...(cfg.calendars.length ? { calendar: new CalendarService(cfg.calendars) } : {}),
+};
 
 let shutdown: () => Promise<unknown>;
 
 if (cfg.transport === "stdio") {
   // local use: one trusted process, every scope (FACTEUR_SCOPES can narrow it)
-  const scopes = new Set((process.env.FACTEUR_SCOPES ?? ALL_SCOPES.join(" ")).split(/[\s,]+/).filter(Boolean));
+  const scopes = new Set((process.env.FACTEUR_SCOPES ?? availableScopes(cfg).join(" ")).split(/[\s,]+/).filter(Boolean));
   const server = buildServer({ ...deps, client: "stdio", scopes });
   await server.connect(new StdioServerTransport());
   log.info("facteur ready on stdio", { version: SERVER_VERSION, scopes: [...scopes] });
@@ -43,6 +53,13 @@ mailer
   .verify()
   .then(() => log.info("bridge smtp ok"))
   .catch((e) => log.warn("bridge smtp not reachable yet", { error: String(e?.message ?? e) }));
+
+if (deps.pass) {
+  deps.pass
+    .check()
+    .then(() => log.info("pass ok"))
+    .catch((e) => log.warn("pass not ready", { error: String(e?.message ?? e) }));
+}
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.once(sig, async () => {
