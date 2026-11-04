@@ -1,0 +1,31 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t facteur .
+      # boots without a Bridge (it only warns), serves health and OAuth discovery
+      - run: |
+          docker run -d --name f -p 8080:8080 -e BRIDGE_USER=ci@example.com -e BRIDGE_PASSWORD=x \
+            -e FACTEUR_PUBLIC_URL=https://facteur.example.com -e FACTEUR_ADMIN_PASSWORD=ci-password facteur
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && break; sleep 1; done
+          curl -fsS localhost:8080/.well-known/oauth-authorization-server | grep -q '"code_challenge_methods_supported":\["S256"\]'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/mcp)" = 401
+          docker logs f
