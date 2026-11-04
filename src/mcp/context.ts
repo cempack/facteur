@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Audit } from "../audit.ts";
 import type { Config } from "../config.ts";
 import type { CalendarService } from "../calendar/service.ts";
+import type { DriveService } from "../drive/service.ts";
 import type { Mailer } from "../mail/send.ts";
 import type { MailService } from "../mail/service.ts";
 import type { RevealStore } from "../pass/reveal.ts";
@@ -16,6 +17,8 @@ export const SCOPES = {
   passReveal: "pass.reveal",
   passWrite: "pass.write",
   calendarRead: "calendar.read",
+  driveRead: "drive.read",
+  driveWrite: "drive.write",
 } as const;
 export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
 
@@ -27,6 +30,7 @@ export function availableScopes(cfg: Config): string[] {
   const out: string[] = [SCOPES.read, SCOPES.write, SCOPES.send];
   if (cfg.pass) out.push(SCOPES.passRead, SCOPES.passReveal, SCOPES.passWrite);
   if (cfg.calendars.length) out.push(SCOPES.calendarRead);
+  if (cfg.drive) out.push(SCOPES.driveRead, SCOPES.driveWrite);
   return out;
 }
 
@@ -38,6 +42,7 @@ export interface ToolContext {
   pass?: PassService;
   reveals?: RevealStore;
   calendar?: CalendarService;
+  drive?: DriveService;
   /** who is calling: an OAuth client id, "api-token" or "stdio" */
   client: string;
   scopes: Set<string>;

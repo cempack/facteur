@@ -9,12 +9,19 @@
 const VISIBLE = new Set([
   "title", "name", "username", "email", "urls", "url", "websites", "website",
   "type", "itemtype", "kind", "state", "vault", "vaultname", "sharename",
+  "aliasaddress", "displayname",
   "createtime", "modifytime", "createdat", "updatedat", "lastusetime", "created", "modified", "updated",
   "aliasemail", "alias", "cardholdername", "cardtype", "expirationdate",
   "ssid", "security", "fullname", "firstname", "lastname", "phonenumber", "organization", "company",
   "city", "country", "zipcode", "stateorprovince", "streetaddress",
   "pinned", "flags", "itemid", "shareid", "id", "filename", "mimetype", "size",
 ]);
+
+/** internal ids and app metadata: neither shown nor offered for reveal */
+const IGNORE = new Set(["vaultid", "itemuuid", "customicon", "platformspecific", "autofillurls", "passkeys", "flags", "itemid", "shareid", "id"]);
+
+/** content.content is keyed by the item type: { Login: {...} }, { CreditCard: {...} } */
+const TYPES = new Set(["Login", "Note", "Alias", "CreditCard", "Identity", "SshKey", "Wifi", "Custom"]);
 
 const SECRET = /pass(word|phrase|code)?$|totp|otp|secret|private|cvv|cvc|pin$|^number$|cardnumber|token|recovery|^note$|^notes$|^content$|seed|mnemonic|license|^key$/i;
 
@@ -47,6 +54,7 @@ export function viewItem(raw: Record<string, unknown>, ref?: string): ItemView {
   const walk = (v: unknown, key: string, depth: number) => {
     if (depth > 6 || v === null || v === undefined) return;
     const k = norm(key);
+    if (IGNORE.has(k)) return;
     if (Array.isArray(v) && v.length && v.every((x) => x && typeof x === "object")) {
       // custom fields: [{ name, type, value }] / attachments: [{ name|filename, ... }]
       if (/extrafields|customfields|fields/.test(k)) {
@@ -64,7 +72,10 @@ export function viewItem(raw: Record<string, unknown>, ref?: string): ItemView {
       return;
     }
     if (typeof v === "object" && !Array.isArray(v)) {
-      for (const [ck, cv] of Object.entries(v as Record<string, unknown>)) walk(cv, ck, depth + 1);
+      for (const [ck, cv] of Object.entries(v as Record<string, unknown>)) {
+        if (TYPES.has(ck)) view.type ??= ck;
+        walk(cv, ck, depth + 1);
+      }
       return;
     }
     const value = str(v);
@@ -87,8 +98,17 @@ export function viewItem(raw: Record<string, unknown>, ref?: string): ItemView {
   const custom = (f: Record<string, unknown>) => {
     const name = str(f.name) ?? str(f.fieldName) ?? str(f.title);
     if (!name) return;
-    const type = (str(f.type) ?? str(f.fieldType) ?? "text").toLowerCase();
-    const value = str(f.value) ?? str((f.data as Record<string, unknown> | undefined)?.content) ?? str(f.content);
+    let type = (str(f.type) ?? str(f.fieldType) ?? "text").toLowerCase();
+    let value = str(f.value) ?? str((f.data as Record<string, unknown> | undefined)?.content) ?? str(f.content);
+    // { name, content: { Hidden: "…" } } / { Text: … } / { Totp: … }
+    const c = f.content;
+    if (c && typeof c === "object" && !Array.isArray(c)) {
+      const [k, x] = Object.entries(c as Record<string, unknown>)[0] ?? [];
+      if (k) {
+        type = k.toLowerCase();
+        value = str(x) ?? str((x as Record<string, unknown> | undefined)?.value);
+      }
+    }
     if (type === "text" && value && !SECRET.test(norm(name))) view.customVisible[name] = value;
     else if (value || type !== "text") view.revealable.push(name);
   };

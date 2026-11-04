@@ -49,6 +49,7 @@ export class PassService {
   private readonly cfg: PassConfig;
   private readonly lock = new Mutex();
   private signedInAt = 0;
+  private listCache = new Map<string, { at: number; items: Record<string, unknown>[] }>();
 
   constructor(cfg: PassConfig) {
     this.cfg = cfg;
@@ -67,7 +68,12 @@ export class PassService {
     else if (vault.name) args.push("--vault-name", vault.name);
     if (opts.type) args.push("--filter-type", opts.type);
     args.push("--filter-state", opts.trashed ? "trashed" : "active");
-    return asList(await this.json(args), ["items"]);
+    const key = args.join("\u0000");
+    const hit = this.listCache.get(key);
+    if (hit && Date.now() - hit.at < 60_000) return hit.items;
+    const items = asList(await this.json(args), ["items"]);
+    this.listCache.set(key, { at: Date.now(), items });
+    return items;
   }
 
   /** the whole item, secrets included: callers must strip what the model may not see */
@@ -112,6 +118,7 @@ export class PassService {
     else if (vault.name) args.push("--vault-name", vault.name);
     // the template (with the password) goes over stdin, never on the command line
     const out = await this.run(args, { reason, stdin: JSON.stringify(filled) });
+    this.listCache.clear();
     return out;
   }
 
@@ -120,10 +127,12 @@ export class PassService {
     for (const [k, v] of Object.entries(fields)) args.push("--field", `${k}=${v}`);
     if (fieldType) args.push("--field-type", fieldType);
     await this.run(args, { reason });
+    this.listCache.clear();
   }
 
   async trash(ref: ItemRef, reason: string, restore = false): Promise<void> {
     await this.run(["item", restore ? "untrash" : "trash", "--share-id", ref.shareId, "--item-id", ref.itemId], { reason });
+    this.listCache.clear();
   }
 
   async check(): Promise<string> {

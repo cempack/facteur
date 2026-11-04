@@ -42,6 +42,8 @@ export const SCOPE_TEXT: Record<string, { title: string; detail: string }> = {
   "pass.reveal": { title: "See Pass secrets (passwords, 2FA codes, notes)", detail: "Only for apps you trust with your vault. Each reveal is logged here and in Proton Pass." },
   "pass.write": { title: "Create and edit Pass items", detail: "Save new logins, change fields, move items to the Pass trash. Never deletes permanently." },
   "calendar.read": { title: "Read your calendar", detail: "Events from your shared Proton calendars (read-only)." },
+  "drive.read": { title: "Browse and download from Proton Drive", detail: "List folders, see file details and sharing, open files." },
+  "drive.write": { title: "Upload to and organize Proton Drive", detail: "Upload (including email attachments), create folders, rename, move, trash or restore, and share links. Never deletes permanently." },
 };
 
 export function loginPage(action: string, error?: string): string {

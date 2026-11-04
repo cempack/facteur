@@ -43,6 +43,8 @@ export interface Config {
   };
   /** Proton Pass through pass-cli, when PROTON_PASS_AGENT_TOKEN is set */
   pass?: { token: string; bin: string; sessionDir: string };
+  /** Proton Drive through the official proton-drive CLI (FACTEUR_DRIVE=true) */
+  drive: boolean;
   /** Proton Calendar share links (read-only ICS) */
   calendars: CalendarSource[];
   dataDir: string;
@@ -124,6 +126,7 @@ export function loadConfig(): Config {
         sessionDir: str("PROTON_PASS_SESSION_DIR") ?? "/tmp/facteur-pass",
       },
     }),
+    drive: bool("FACTEUR_DRIVE", false),
     calendars: parseSources(process.env.FACTEUR_CALENDARS),
     dataDir: str("FACTEUR_DATA_DIR") ?? "./data",
     timeZone: str("FACTEUR_TIMEZONE") ?? str("TZ") ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",

@@ -55,3 +55,29 @@ describe("calendar expand", () => {
     expect(evs.find((e) => e.title === "Holiday")?.allDay).toBe(true);
   });
 });
+
+describe("pass item layout from pass-cli 2.7", () => {
+  it("shows login metadata and hides the rest", () => {
+    const raw = {
+      item: {
+        id: "i".repeat(88), share_id: "s".repeat(88), vault_id: "v".repeat(88),
+        content: {
+          title: "Bank", note: "pin is 4321", item_uuid: "abcd1234",
+          content: { Login: { email: "me@x.com", username: "", password: "s3cret!", urls: ["https://bank.example"], totp_uri: "otpauth://totp/a?secret=XYZ", passkeys: [], autofill_urls: [] } },
+          extra_fields: [{ name: "Customer no", content: { Text: "998877" } }, { name: "Security answer", content: { Hidden: "blue" } }],
+          platform_specific: { android: null }, custom_icon: null,
+        },
+        state: "Active", flags: [], create_time: "2026-01-01 10:00:00", modify_time: "2026-02-01 10:00:00",
+      },
+      attachments: [],
+    };
+    const v = viewItem(raw, "pass://s/i");
+    const out = renderItem(v);
+    expect(v.type).toBe("Login");
+    expect(out).toContain("me@x.com");
+    expect(out).toContain("https://bank.example");
+    expect(out).toContain("Customer no: 998877");
+    for (const secret of ["s3cret!", "XYZ", "4321", "blue", "v".repeat(20), "abcd1234"]) expect(out).not.toContain(secret);
+    expect([...new Set(v.revealable)].sort()).toEqual(["Security answer", "note", "password", "totp_uri"]);
+  });
+});

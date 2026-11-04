@@ -45,7 +45,7 @@ export function registerPassTools(server: McpServer, ctx: PassContext) {
   };
 
   const itemsOf = async (v: Vault, type?: string, trashed?: boolean): Promise<ItemView[]> =>
-    (await ctx.pass.items({ shareId: v.shareId }, { type, trashed })).map((raw) => {
+    (await ctx.pass.items({ shareId: v.shareId }, { ...(type && { type }), ...(trashed && { trashed }) })).map((raw) => {
       const itemId = findString(raw, ["item_id", "itemId", "itemID"]) ?? findString(raw, ["id"]);
       const view = viewItem(raw, itemId ? formatRef({ shareId: v.shareId, itemId }) : undefined);
       view.vault ??= v.name;
@@ -71,26 +71,49 @@ export function registerPassTools(server: McpServer, ctx: PassContext) {
     {
       title: "Search Proton Pass",
       description:
-        "Find logins, notes, cards, identities, aliases... by title, username, email or website. " +
-        "Shows only non-secret fields; secret fields are listed by name for pass_reveal.",
+        "Find items (logins, notes, cards, identities, aliases...) by title, optionally by vault or type. " +
+        "The best matches come with their username/email and websites; secrets are never included (see pass_reveal).",
       inputSchema: z.object({
-        query: z.string().optional().describe('Words to match, e.g. "github" or "bank". Leave out to list everything.'),
+        query: z.string().optional().describe('Words from the item title, e.g. "github" or "banque". Leave out to list everything.'),
         vault: z.string().optional().describe("Only this vault."),
         type: z.enum(["login", "note", "alias", "credit-card", "identity", "ssh-key", "wifi", "custom"]).optional(),
         trashed: z.boolean().default(false).describe("Search the trash instead."),
-        limit: z.number().int().min(1).max(100).default(25),
+        limit: z.number().int().min(1).max(200).default(30),
+        details: z.number().int().min(0).max(10).default(5).describe("Open this many top matches to show username and websites."),
       }),
       annotations: READ,
     },
-    safe("pass_search", ctx, async ({ query, vault, type, trashed, limit }) => {
+    safe("pass_search", ctx, async ({ query, vault, type, trashed, limit, details }) => {
       const scope = vault ? [await pickVault(vault)] : await vaults();
       let found: ItemView[] = [];
       for (const v of scope) found.push(...(await itemsOf(v, type, trashed)));
-      if (query) found = found.filter((i) => matches(i, query));
-      if (!found.length) return text(`No items match${query ? ` "${query}"` : ""}.`);
+      if (query) {
+        const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+        const score = (i: ItemView) => {
+          const t = i.title.toLowerCase();
+          return t === query.toLowerCase() ? 3 : t.startsWith(words[0]!) ? 2 : 1;
+        };
+        found = found.filter((i) => matches(i, query)).sort((a, b) => score(b) - score(a) || a.title.localeCompare(b.title));
+      } else found.sort((a, b) => a.title.localeCompare(b.title));
+      if (!found.length) return text(`No items match${query ? ` "${query}"` : ""}. Titles are searched; try a shorter word.`);
       const shown = found.slice(0, limit);
+      const opened = query ? shown.slice(0, details) : [];
+      const blocks: string[] = [];
+      for (const item of shown) {
+        if (opened.includes(item) && item.ref) {
+          try {
+            const full = viewItem(await ctx.pass.view(parseRef(item.ref), why("pass_search", `show username/websites for "${query}"`)), item.ref);
+            full.vault ??= item.vault;
+            blocks.push(renderItem(full));
+            continue;
+          } catch {
+            /* fall back to the list entry */
+          }
+        }
+        blocks.push(renderItem(item));
+      }
       const more = found.length > shown.length ? `\n\n(${found.length - shown.length} more; narrow the query.)` : "";
-      return text(`${found.length} item${found.length > 1 ? "s" : ""}:\n\n${shown.map(renderItem).join("\n\n")}${more}`);
+      return text(`${found.length} item${found.length > 1 ? "s" : ""}:\n\n${blocks.join("\n\n")}${more}`);
     }),
   );
 

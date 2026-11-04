@@ -22,18 +22,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && echo "${sum}  /pass-cli" | sha256sum -c - \
  && chmod 755 /pass-cli
 
+FROM node:26-slim AS drive
+# Proton Drive CLI, pinned and checked against Proton's published SHA-512
+# (https://proton.me/download/drive/cli/version.json)
+ARG PROTON_DRIVE_VERSION=0.9.0
+ARG TARGETARCH
+RUN set -eux; \
+    case "$TARGETARCH" in \
+      arm64) plat=linux-arm64; sha512=c8d5a6b174e57f06d05cb5483400b9963faf58e743b6b33706bb73ecff718047ffce6b439994255b94b5b226b90d2e91bef7418ec96c1c3f5d8bf39b6cd01321 ;; \
+      amd64|"") plat=linux-x64; sha512=3533025ba69ae112b64e3e01fbcc1ad0688136a4043f6cf6a72886967d85fdcd9ec235479c2e113171614be5225bfba93427509a05ca5aa6071d924fa7e91ca8 ;; \
+      *) echo "no proton-drive build for $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; apt-get install -y --no-install-recommends ca-certificates curl; \
+    curl -fsSL -o /proton-drive "https://proton.me/download/drive/cli/${PROTON_DRIVE_VERSION}/${plat}/proton-drive"; \
+    echo "${sha512}  /proton-drive" | sha512sum -c -; \
+    chmod 0755 /proton-drive
+
 FROM node:26-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     PORT=8080 \
-    FACTEUR_DATA_DIR=/data
+    FACTEUR_DATA_DIR=/data \
+    PROTON_DRIVE_CACHE_DIR=/data/drive \
+    PROTON_DRIVE_CREDENTIALS_STORE=unsafe_file \
+    PROTON_DRIVE_LOG_LEVEL=WARNING
 WORKDIR /app
 COPY --from=passcli /pass-cli /usr/local/bin/pass-cli
+COPY --from=drive /proton-drive /usr/local/bin/proton-drive
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
 # OAuth state and the audit log live in /data; mount a volume there
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data/drive && chown -R node:node /data && chmod 700 /data/drive
 USER node
 EXPOSE 8080
 VOLUME /data

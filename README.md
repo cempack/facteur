@@ -1,12 +1,13 @@
 # Facteur
 
-An [MCP](https://modelcontextprotocol.io) server for a **Proton** account. Claude, ChatGPT, Cursor or any MCP client can use it to read, search, organize and send your **Mail** through [Proton Mail Bridge](https://proton.me/mail/bridge), look up and manage **Pass** items through Proton's official [`pass-cli`](https://protonpass.github.io/pass-cli/), and read your **Calendar**.
+An [MCP](https://modelcontextprotocol.io) server for a **Proton** account. Claude, ChatGPT, Cursor or any MCP client can use it to read, search, organize and send your **Mail** through [Proton Mail Bridge](https://proton.me/mail/bridge), look up and manage **Pass** items through Proton's official [`pass-cli`](https://protonpass.github.io/pass-cli/), browse and fill your **Drive** through Proton's official Drive CLI, and read your **Calendar**.
 
 *Facteur* is French for postman.
 
 ```
 AI app ──HTTPS + OAuth──▶ Facteur ─┬─ IMAP/SMTP (private network) ──▶ Proton Mail Bridge
                                    ├─ pass-cli, signed in as a Pass agent ──▶ Proton Pass
+                                   ├─ proton-drive CLI ──▶ Proton Drive
                                    └─ calendar share links (ICS, read-only) ──▶ Proton Calendar
 ```
 
@@ -47,6 +48,17 @@ AI app ──HTTPS + OAuth──▶ Facteur ─┬─ IMAP/SMTP (private network
 | `pass_update_item` | pass.write | Change fields (`password: "generate"` rotates it) |
 | `pass_trash_item` | pass.write | Move to the Pass trash, or restore. Never deletes permanently |
 
+### Proton Drive (only when `FACTEUR_DRIVE=true`, after a one-time sign-in)
+
+| Tool | Scope | What it does |
+|---|---|---|
+| `drive_list` | drive.read | A folder's contents, or a bounded walk of subfolders filtered by name (the CLI has no search) |
+| `drive_info` / `drive_sharing_status` | drive.read | Details, folder size, who has access, and share links |
+| `drive_download` | drive.read | Open a file: images as images, text as text, others as embedded resources |
+| `drive_upload` | drive.write | Upload text or base64 content, **or an email attachment** (`email_id` + `part`) |
+| `drive_mkdir`, `drive_rename`, `drive_move`, `drive_trash`, `drive_restore` | drive.write | Organize. Never deletes permanently |
+| `drive_share_link`, `drive_share`, `drive_unshare_link`, `drive_unshare` | drive.write | Public links (optional password and expiry) and invitations |
+
 ### Proton Calendar (only when `FACTEUR_CALENDARS` is set)
 
 | Tool | Scope | What it does |
@@ -70,6 +82,7 @@ Facteur holds the keys to a mailbox, so it is built to be safe to expose:
 - **Connections can be revoked at any time** from the dashboard at `/`.
 - **Every change is audited.** Each move, delete, label, draft and send is appended to `/data/audit.jsonl` with the app, the message ids, and for sends the recipients and subject (never the body).
 - **Pass secrets are opt-in, per app.** Facteur signs in to Pass as a [Pass agent](https://protonpass.github.io/pass-cli/): a token limited to the vaults you choose, revocable from Pass, with Proton's own audit log (`pass-cli agent monitor facteur`). Item lists and details never contain secret values. Values come only from `pass_reveal`, which needs the `pass.reveal` scope (unticked on the consent page) and a reason that Proton records. Apps without that scope get a one-time link (single use, 10 minutes, behind your sign-in), and the value goes from Pass to your screen without passing through the AI. The static API token can't reveal unless `FACTEUR_API_TOKEN_SCOPES` says so. `pass-cli` runs with argument arrays (no shell). New passwords go over stdin, never on the command line. The session lives in a private directory that isn't persisted.
+- **Know what the Drive session is.** The official Drive CLI has no token-only mode for servers, so its session file (`/data/drive/auth-session.json`, mode 0600 in a 0700 directory) holds a refresh token *and the key password for your account keys*. Anyone who gets the data volume or an unencrypted backup of it can read your Drive. Keep the volume private, or leave Drive off. Sign out with `proton-drive auth logout` in the container, or revoke the session from Proton's security settings.
 - **Email content is treated as untrusted.** Bodies and attachments are wrapped in `<email_body untrusted>` markers. The server's instructions tell the model never to act on instructions found in mail, and to draft rather than send when unsure. The send tools are annotated as destructive and open-world, so clients ask before running them.
 - **Sending is limited to your own addresses.** Mail can only go out from the addresses in `FACTEUR_FROM`.
 - **Hardened HTTP.** Responses have a strict CSP with no scripts and no framing. Requests are rate-limited per IP, forms are same-origin only, and session cookies are `HttpOnly` with `SameSite=Lax`. The container runs as the unprivileged `node` user.
@@ -105,6 +118,7 @@ See [`.env.example`](.env.example). The required variables are `BRIDGE_USER` and
 | `FACTEUR_API_TOKEN` | | Static bearer token (≥ 24 chars) |
 | `FACTEUR_API_TOKEN_SCOPES` | all but `pass.reveal` | What the static token may do |
 | `PROTON_PASS_AGENT_TOKEN` | | Pass agent token (`pst_…::…`), turns Pass on |
+| `FACTEUR_DRIVE` | `false` | Turn on Proton Drive (the image includes the CLI) |
 | `FACTEUR_CALENDARS` | | `Name\|https://…ics, Other\|https://…ics` calendar share links, turns Calendar on |
 | `FACTEUR_SESSION_DAYS` | `30` | How long a password sign-in lasts on the approval page and dashboard |
 | `FACTEUR_DATA_DIR` | `/data` (image) | OAuth state and audit log |
@@ -124,6 +138,16 @@ pass-cli agent access grant facteur --vault-name Personal --role editor         
 ```
 
 Renew it before it expires with `pass-cli agent renew --expiration 1y facteur`. See what it accessed with `pass-cli agent monitor facteur`.
+
+### Proton Drive
+
+Set `FACTEUR_DRIVE=true`, deploy, then sign in once from inside the container. It prints a link to open on any device, valid 10 minutes:
+
+```sh
+docker exec -it -u node <facteur container> proton-drive auth login
+```
+
+The session lives in `/data/drive` and survives restarts.
 
 ### Proton Calendar
 

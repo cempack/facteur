@@ -1,6 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { Audit } from "./audit.ts";
 import { CalendarService } from "./calendar/service.ts";
+import { DriveService } from "./drive/service.ts";
 import { RevealStore } from "./pass/reveal.ts";
 import { PassService } from "./pass/service.ts";
 import { loadConfig } from "./config.ts";
@@ -22,6 +23,7 @@ const deps = {
   audit,
   ...(cfg.pass && { pass: new PassService(cfg.pass), reveals: new RevealStore() }),
   ...(cfg.calendars.length ? { calendar: new CalendarService(cfg.calendars) } : {}),
+  ...(cfg.drive ? { drive: new DriveService() } : {}),
 };
 
 let shutdown: () => Promise<unknown>;
