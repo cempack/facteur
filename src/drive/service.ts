@@ -291,7 +291,8 @@ export class DriveService {
     );
   }
 
-  private ensureDir() {
+  /** the session dir may not exist yet (a data volume created before Drive was added) */
+  ensureDir() {
     this.ready ??= (async () => {
       await mkdir(this.cfg.dir, { recursive: true, mode: 0o700 });
       await chmod(this.cfg.dir, 0o700).catch(() => undefined);

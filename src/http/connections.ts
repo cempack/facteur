@@ -64,12 +64,19 @@ export class Connections {
 
   // ---------- Drive ----------
 
-  startDrive() {
+  async startDrive() {
     const drive = this.d.drive;
     if (!drive) throw new Error("Drive is turned off (FACTEUR_DRIVE)");
     if (this.running("drive")) return;
     const f: Flow = { kind: "drive", status: "starting", started: Date.now() };
     this.flows.set("drive", f);
+    try {
+      await drive.ensureDir();
+    } catch (e) {
+      f.status = "failed";
+      f.message = `couldn't create the Drive session folder: ${(e as Error).message}`;
+      return;
+    }
     this.runLogin(f, drive.cfg.bin, ["auth", "login"], { ...drive.env() }, drive.cfg.dir, async () => {
       f.status = "done";
       f.message = "Proton Drive is connected.";
@@ -196,15 +203,20 @@ export class Connections {
     child.stdout?.on("data", seen);
     child.stderr?.on("data", seen);
     child.stdin?.end();
-    child.on("error", async (e) => {
-      clearTimeout(timer);
-      f.status = "failed";
-      f.message = e.message;
-      await onFail?.();
+    let spawnError: Error | undefined;
+    child.on("error", (e) => {
+      // e.g. the binary or the working directory is missing; "close" follows
+      spawnError = e;
     });
     child.on("close", async (code) => {
       clearTimeout(timer);
       f.child = undefined;
+      if (spawnError) {
+        f.status = "failed";
+        f.message = `couldn't start ${bin.split("/").pop()}: ${spawnError.message}`;
+        await onFail?.();
+        return;
+      }
       if (code === 0) return onDone().catch((e) => ((f.status = "failed"), (f.message = String(e))));
       f.status = "failed";
       const last = output.replace(TOKEN_RE, "pst_***").trim().split("\n").filter(Boolean).slice(-2).join(" ");
@@ -267,7 +279,7 @@ export function connectionsRouter(
   });
   r.post("/connections/drive/login", async (req, res) => {
     if (!(await guard(req, res, true))) return;
-    c.startDrive();
+    await c.startDrive();
     back(res);
   });
   r.post("/connections/drive/logout", async (req, res) => {
