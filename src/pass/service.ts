@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { log } from "../log.ts";
 
 /**
@@ -14,11 +15,15 @@ import { log } from "../log.ts";
  */
 
 export interface PassConfig {
-  /** agent or personal access token: pst_<token>::<key> */
-  token: string;
+  /** agent token from the environment: pst_<token>::<key> */
+  token?: string;
   bin: string;
   sessionDir: string;
+  /** where the dashboard saves a renewed token; it wins over the env one */
+  tokenFile: string;
 }
+
+export const TOKEN_RE = /pst_[A-Za-z0-9_-]+::[A-Za-z0-9+/=_-]+/;
 
 export interface ItemRef {
   shareId: string;
@@ -54,6 +59,30 @@ export class PassService {
   constructor(cfg: PassConfig) {
     this.cfg = cfg;
     mkdirSync(cfg.sessionDir, { recursive: true, mode: 0o700 });
+  }
+
+  get bin() {
+    return this.cfg.bin;
+  }
+
+  /** the token in use: the one saved from the dashboard, else the env one */
+  token(): { value: string; source: "dashboard" | "env" } | undefined {
+    try {
+      const t = readFileSync(this.cfg.tokenFile, "utf8").trim();
+      if (TOKEN_RE.test(t)) return { value: t, source: "dashboard" };
+    } catch {
+      /* none saved */
+    }
+    return this.cfg.token ? { value: this.cfg.token, source: "env" } : undefined;
+  }
+
+  setToken(t: string) {
+    if (!TOKEN_RE.test(t)) throw new Error("that isn't a Pass agent token");
+    mkdirSync(dirname(this.cfg.tokenFile), { recursive: true, mode: 0o700 });
+    writeFileSync(`${this.cfg.tokenFile}.tmp`, t + "\n", { mode: 0o600 });
+    renameSync(`${this.cfg.tokenFile}.tmp`, this.cfg.tokenFile);
+    this.signedInAt = 0;
+    this.listCache.clear();
   }
 
   // ---------- reading ----------
@@ -167,6 +196,7 @@ export class PassService {
 
   private async ensureSession() {
     if (Date.now() - this.signedInAt < SESSION_MS) return;
+    if (!this.token()) throw new Error("Proton Pass isn't connected yet: open Connections on Facteur's home page and click Connect Pass");
     await this.exec(["logout"], {}).catch(() => this.exec(["logout", "--force"], {}).catch(() => undefined));
     await this.exec(["login"], { withToken: true });
     this.signedInAt = Date.now();
@@ -182,7 +212,7 @@ export class PassService {
       PROTON_PASS_KEY_PROVIDER: "fs",
       NO_COLOR: "1",
       ...(opts.reason && { PROTON_PASS_AGENT_REASON: opts.reason.slice(0, 300) }),
-      ...(opts.withToken && { PROTON_PASS_PERSONAL_ACCESS_TOKEN: this.cfg.token }),
+      ...(opts.withToken && { PROTON_PASS_PERSONAL_ACCESS_TOKEN: this.token()?.value }),
     };
     return new Promise((resolve, reject) => {
       const child = execFile(this.cfg.bin, args, { env, timeout: 45_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {

@@ -135,6 +135,7 @@ export function dashboardPage(o: { account: string; mcpUrl: string; owner: strin
     `<h1>Facteur</h1><p class="muted">MCP server for ${esc(o.account)}</p>
 <h2>Connect an AI app</h2><p>Add a custom connector / remote MCP server with this URL, then approve it here:</p><p><code>${esc(o.mcpUrl)}</code></p>
 ${o.tokenEnabled ? `<p class="muted">Scripts and CLI clients can also use the static API token as a Bearer token.</p>` : ""}
+<p><a class="btn" href="/connections">Connections: Mail, Pass, Drive, Calendar →</a></p>
 <h2>Connected apps</h2>${rows}
 <p class="muted" style="margin-top:20px">Signed in as ${esc(o.owner)}${o.ownerMode === "password" ? ` · <a href="/logout">sign out</a>` : ""}</p>`,
   );

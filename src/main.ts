@@ -1,4 +1,5 @@
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { join } from "node:path";
 import { Audit } from "./audit.ts";
 import { CalendarService } from "./calendar/service.ts";
 import { DriveService } from "./drive/service.ts";
@@ -21,8 +22,9 @@ const deps = {
   mailer,
   cfg,
   audit,
-  ...(cfg.pass && { pass: new PassService(cfg.pass), reveals: new RevealStore() }),
-  ...(cfg.calendars.length ? { calendar: new CalendarService(cfg.calendars) } : {}),
+  pass: new PassService(cfg.pass),
+  reveals: new RevealStore(),
+  calendar: new CalendarService(cfg.calendars, join(cfg.dataDir, "calendars.json")),
   ...(cfg.drive ? { drive: new DriveService() } : {}),
 };
 
@@ -56,7 +58,7 @@ mailer
   .then(() => log.info("bridge smtp ok"))
   .catch((e) => log.warn("bridge smtp not reachable yet", { error: String(e?.message ?? e) }));
 
-if (deps.pass) {
+if (deps.pass.token()) {
   deps.pass
     .check()
     .then(() => log.info("pass ok"))

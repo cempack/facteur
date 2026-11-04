@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseSources, type CalendarSource } from "./calendar/service.ts";
 import { parseAddressList, type Address } from "./mail/address.ts";
 
@@ -41,8 +43,8 @@ export interface Config {
     /** trust X-Forwarded-For / CF-Connecting-IP (behind Traefik + Cloudflare) */
     trustProxy: boolean;
   };
-  /** Proton Pass through pass-cli, when PROTON_PASS_AGENT_TOKEN is set */
-  pass?: { token: string; bin: string; sessionDir: string };
+  /** Proton Pass through pass-cli (token from env, or connected from the dashboard) */
+  pass: { token?: string; bin: string; sessionDir: string; tokenFile: string };
   /** Proton Drive through the official proton-drive CLI (FACTEUR_DRIVE=true) */
   drive: boolean;
   /** Proton Calendar share links (read-only ICS) */
@@ -119,13 +121,12 @@ export function loadConfig(): Config {
       sessionDays: Math.max(1, int("FACTEUR_SESSION_DAYS", 30)),
       trustProxy: bool("FACTEUR_TRUST_PROXY", true),
     },
-    ...(str("PROTON_PASS_AGENT_TOKEN") && {
-      pass: {
-        token: str("PROTON_PASS_AGENT_TOKEN")!,
-        bin: str("PROTON_PASS_CLI") ?? "pass-cli",
-        sessionDir: str("PROTON_PASS_SESSION_DIR") ?? "/tmp/facteur-pass",
-      },
-    }),
+    pass: {
+      ...(str("PROTON_PASS_AGENT_TOKEN") && { token: str("PROTON_PASS_AGENT_TOKEN")! }),
+      bin: str("PROTON_PASS_CLI") ?? "pass-cli",
+      sessionDir: str("PROTON_PASS_SESSION_DIR") ?? "/tmp/facteur-pass",
+      tokenFile: `${str("FACTEUR_DATA_DIR") ?? "./data"}/pass/agent-token`,
+    },
     drive: bool("FACTEUR_DRIVE", false),
     calendars: parseSources(process.env.FACTEUR_CALENDARS),
     dataDir: str("FACTEUR_DATA_DIR") ?? "./data",
@@ -133,7 +134,13 @@ export function loadConfig(): Config {
     maxAttachmentBytes: int("FACTEUR_MAX_ATTACHMENT_MB", 15) * 1024 * 1024,
   };
 
-  if (cfg.pass && !/^pst_[^:]+::.+$/.test(cfg.pass.token)) throw new Error("PROTON_PASS_AGENT_TOKEN must look like pst_<token>::<key>");
+  try {
+    const saved = readFileSync(join(cfg.dataDir, "bridge", "password"), "utf8").trim();
+    if (saved) cfg.bridge.password = saved;
+  } catch {
+    /* none saved from the dashboard */
+  }
+  if (cfg.pass.token && !/^pst_[^:]+::.+$/.test(cfg.pass.token)) throw new Error("PROTON_PASS_AGENT_TOKEN must look like pst_<token>::<key>");
   if (cfg.http.apiToken && cfg.http.apiToken.length < 24) throw new Error("FACTEUR_API_TOKEN must be at least 24 characters");
   if (Boolean(cfg.http.accessTeam) !== Boolean(cfg.http.accessAud)) throw new Error("set both FACTEUR_ACCESS_TEAM and FACTEUR_ACCESS_AUD, or neither");
   return cfg;

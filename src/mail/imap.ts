@@ -53,6 +53,13 @@ export class ImapPool {
     });
   }
 
+  /** log out idle connections; busy ones are dropped when they come back */
+  async reset() {
+    const all = this.idle.splice(0);
+    this.open = Math.max(0, this.open - all.length);
+    await Promise.allSettled(all.map(({ client }) => client.logout()));
+  }
+
   async close() {
     this.closed = true;
     clearInterval(this.sweeper);

@@ -13,9 +13,23 @@ import type { Outgoing } from "./compose.ts";
 export class Mailer {
   private transport: Transporter;
   private readonly domain: string;
+  private readonly bridge: Config["bridge"];
 
   constructor(bridge: Config["bridge"], from: Address) {
-    this.transport = nodemailer.createTransport({
+    this.bridge = bridge;
+    this.transport = this.create();
+    this.domain = from.address.split("@")[1] ?? "localhost";
+  }
+
+  /** after the Bridge password changed (bridge.password is read again) */
+  reload() {
+    this.transport.close();
+    this.transport = this.create();
+  }
+
+  private create(): Transporter {
+    const bridge = this.bridge;
+    return nodemailer.createTransport({
       host: bridge.host,
       port: bridge.smtpPort,
       secure: bridge.tls === "tls",
@@ -29,7 +43,6 @@ export class Mailer {
       greetingTimeout: 15_000,
       socketTimeout: 120_000,
     });
-    this.domain = from.address.split("@")[1] ?? "localhost";
   }
 
   async verify(): Promise<void> {

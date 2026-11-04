@@ -10,6 +10,7 @@ import { availableScopes, OPT_IN_SCOPES, type ToolContext } from "../mcp/context
 import { buildServer } from "../mcp/server.ts";
 import { OAuthError, OAuthProvider, sign, unsign, type AuthorizeRequest } from "./oauth/provider.ts";
 import { OAuthStore } from "./oauth/store.ts";
+import { Connections, connectionsRouter } from "./connections.ts";
 import { Owner } from "./owner.ts";
 import { consentPage, dashboardPage, errorPage, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
 
@@ -197,6 +198,29 @@ export function createApp(cfg: Config, deps: Deps) {
       res.status(502).send(errorPage("Couldn't read it", (e as Error).message));
     }
   });
+
+  // ---------- connections (sign-in to Proton services) ----------
+  if (deps.pass && deps.calendar) {
+    const connections = new Connections({
+      mail: deps.mail,
+      mailer: deps.mailer,
+      pass: deps.pass,
+      calendar: deps.calendar,
+      bridge: cfg.bridge,
+      bridgePasswordFile: join(cfg.dataDir, "bridge", "password"),
+      ...(deps.drive && { drive: deps.drive }),
+    });
+    const guard = async (req: Request, res: Response, post: boolean) => {
+      if (post && !sameOrigin(req, base)) return void res.status(403).send(errorPage("Blocked", "This form must be sent from this site.")), false;
+      if (await owner.identify(req)) return true;
+      if (!post && owner.mode === "password") res.send(loginPage(`/login?next=${encodeURIComponent(req.originalUrl)}`));
+      else res.status(403).send(errorPage("Not signed in", "Sign in first."));
+      return false;
+    };
+    const bridgeHint = process.env.FACTEUR_BRIDGE_LOGIN_HINT ?? "open the Bridge CLI in its container and run login.";
+    app.use("/connections", limiter(120));
+    app.use(connectionsRouter(connections, guard, bridgeHint));
+  }
 
   // ---------- dashboard ----------
   app.get("/", async (req, res) => {

@@ -31,7 +31,7 @@ export function registerCalendarTools(server: McpServer, ctx: CalendarContext) {
       title: "Calendar events",
       description:
         `Events from Proton Calendar (read-only) between two dates, recurring ones expanded, in ${tz}. ` +
-        `Calendars: ${ctx.calendar.sources.map((s) => s.name).join(", ")}. Default: today and the next 7 days.`,
+        `Calendars: ${ctx.calendar.sources.map((s) => s.name).join(", ") || "none connected yet"}. Default: today and the next 7 days.`,
       inputSchema: z.object({
         from: z.string().default("today").describe('Start: "today", "2026-11-04", an ISO date-time, or "-7d" for 7 days ago.'),
         to: z.string().optional().describe('End (exclusive): a date, or a span after from like "+7d", "+1m". Default +7d.'),

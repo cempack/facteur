@@ -1,4 +1,6 @@
 import ICAL from "ical.js";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { log } from "../log.ts";
 
 /**
@@ -46,15 +48,56 @@ export function parseSources(value: string | undefined): CalendarSource[] {
 const CACHE_MS = 5 * 60_000;
 
 export class CalendarService {
-  readonly sources: CalendarSource[];
+  private readonly fromEnv: CalendarSource[];
+  private readonly file?: string;
   private cache = new Map<string, { at: number; comp: ICAL.Component }>();
 
-  constructor(sources: CalendarSource[]) {
-    this.sources = sources;
+  /** links from the environment, plus the ones added on the dashboard (saved in `file`) */
+  constructor(fromEnv: CalendarSource[], file?: string) {
+    this.fromEnv = fromEnv;
+    this.file = file;
+  }
+
+  get sources(): CalendarSource[] {
+    return [...this.fromEnv, ...this.saved()];
+  }
+
+  isFromEnv(name: string) {
+    return this.fromEnv.some((s) => s.name === name);
+  }
+
+  add(name: string, url: string) {
+    const [src] = parseSources(`${name.replace(/[|,\n]/g, " ").trim() || "Calendar"}|${url.trim()}`);
+    if (!src) throw new Error("that isn't a calendar link");
+    if (this.sources.some((s) => s.name.toLowerCase() === src.name.toLowerCase())) throw new Error(`there's already a calendar called ${src.name}`);
+    this.save([...this.saved(), src]);
+  }
+
+  remove(name: string) {
+    this.save(this.saved().filter((s) => s.name !== name));
+    this.cache.clear();
+  }
+
+  private saved(): CalendarSource[] {
+    if (!this.file) return [];
+    try {
+      const list = JSON.parse(readFileSync(this.file, "utf8")) as CalendarSource[];
+      return Array.isArray(list) ? list.filter((s) => s && typeof s.name === "string" && /^https:\/\//.test(s.url)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private save(list: CalendarSource[]) {
+    if (!this.file) throw new Error("no data directory to save calendars in");
+    mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
+    writeFileSync(`${this.file}.tmp`, JSON.stringify(list, null, 1), { mode: 0o600 });
+    renameSync(`${this.file}.tmp`, this.file);
   }
 
   async events(from: Date, to: Date, opts: { calendar?: string; query?: string; limit?: number } = {}): Promise<CalEvent[]> {
     const pick = opts.calendar ? this.sources.filter((s) => s.name.toLowerCase() === opts.calendar!.toLowerCase()) : this.sources;
+    if (!this.sources.length) throw new Error("no calendar is connected yet: add a share link under Connections on Facteur's home page");
     if (opts.calendar && !pick.length) throw new Error(`no calendar "${opts.calendar}" (have: ${this.sources.map((s) => s.name).join(", ")})`);
     const out: CalEvent[] = [];
     const failures: string[] = [];

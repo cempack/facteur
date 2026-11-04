@@ -28,8 +28,7 @@ export const OPT_IN_SCOPES: string[] = [SCOPES.passReveal];
 /** what this server can grant, given which Proton services are set up */
 export function availableScopes(cfg: Config): string[] {
   const out: string[] = [SCOPES.read, SCOPES.write, SCOPES.send];
-  if (cfg.pass) out.push(SCOPES.passRead, SCOPES.passReveal, SCOPES.passWrite);
-  if (cfg.calendars.length) out.push(SCOPES.calendarRead);
+  out.push(SCOPES.passRead, SCOPES.passReveal, SCOPES.passWrite, SCOPES.calendarRead);
   if (cfg.drive) out.push(SCOPES.driveRead, SCOPES.driveWrite);
   return out;
 }

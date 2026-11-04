@@ -159,6 +159,15 @@ In Proton Calendar, go to Settings → Calendars → your calendar → Share →
 2. Add a **bypass** application for `/mcp`, `/token`, `/register`, `/revoke` and `/.well-known/*`, since AI apps call those directly. Those paths are protected by the tokens.
 3. Set `FACTEUR_ACCESS_TEAM` and `FACTEUR_ACCESS_AUD`. The consent page and dashboard then need no password.
 
+## Connections page
+
+`/connections` (owner only) shows the status of every service and lets you fix it without a terminal:
+
+- **Mail:** live IMAP/SMTP status. After Bridge was signed in again, paste its new password here and Facteur reconnects. Signing Bridge itself in still happens in Bridge's own CLI.
+- **Pass:** *Connect* / *Renew for a year*. You approve a Proton sign-in link, and Facteur creates or renews its own Pass agent, saves the token in `/data/pass`, and signs your session out again.
+- **Drive:** *Sign in* shows Proton's sign-in link and the page updates when you've approved it. *Sign out* is there too.
+- **Calendar:** add or remove calendar share links. They're stored in `/data/calendars.json`, mode 0600.
+
 ## Connect an app
 
 The MCP URL is `https://<your host>/mcp`.

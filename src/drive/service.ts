@@ -303,7 +303,7 @@ export class DriveService {
    * Only what the CLI needs: no Bridge password, API token or other Facteur
    * secrets reach the child process.
    */
-  private env(): NodeJS.ProcessEnv {
+  env(): NodeJS.ProcessEnv {
     const e: NodeJS.ProcessEnv = {
       PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
       HOME: process.env.HOME ?? this.cfg.dir,
