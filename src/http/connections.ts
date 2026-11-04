@@ -12,7 +12,7 @@ import { log } from "../log.ts";
 import type { Mailer } from "../mail/send.ts";
 import type { MailService } from "../mail/service.ts";
 import { TOKEN_RE, type PassService } from "../pass/service.ts";
-import { esc, page } from "./pages.ts";
+import { connectionsPage, errorPage } from "./pages.ts";
 
 /**
  * The owner's "Connections" page: the status of every Proton service and
@@ -249,81 +249,21 @@ function runCli(bin: string, args: string[], env: NodeJS.ProcessEnv, cwd: string
   });
 }
 
-// ---------- page ----------
-
-type Status = Awaited<ReturnType<Connections["status"]>>;
-
-const dot = (ok: boolean) => `<span style="color:${ok ? "#2e9d5b" : "#c0392b"}">●</span>`;
-
-function flowBlock(f: Flow | undefined, kind: Kind): string {
-  if (!f) return "";
-  if (f.status === "starting") return `<p class="muted">Starting…</p>`;
-  if (f.status === "waiting")
-    return `<p><strong>Open this link and approve</strong> (any device, within 10 minutes):<br><a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.url)}</a></p><p class="muted">This page updates by itself.</p>`;
-  if (f.status === "finishing") return `<p class="muted">${esc(f.message)}</p>`;
-  if (f.status === "done") return `<p>${dot(true)} ${esc(f.message)}</p>`;
-  return `<p class="warn">${kind === "pass" ? "Pass" : "Drive"} sign-in failed: ${esc(f.message)}</p>`;
-}
-
-export function connectionsPage(s: Status, flows: { drive?: Flow; pass?: Flow }, bridgeHint: string): string {
-  const busy = [flows.drive, flows.pass].some((f) => f && ["starting", "waiting", "finishing"].includes(f.status));
-  const body = `<h1>Connections</h1><p class="muted"><a href="/">← Facteur</a></p>
-
-<h2>${dot(s.mail.imap && s.mail.smtp)} Mail (Proton Mail Bridge)</h2>
-<p>Reading ${s.mail.imap ? "works" : "is failing"} · sending ${s.mail.smtp ? "works" : "is failing"}.</p>
-${s.mail.imap && s.mail.smtp ? "" : `<p class="warn">${esc(s.mail.error ?? "")}</p><p class="muted">If Bridge was signed out, sign it in again on the server: ${esc(bridgeHint)}</p>`}
-<details><summary class="muted">Bridge was signed in again and has a new password?</summary>
-<form method="post" action="/connections/bridge/password"><p><input type="password" name="password" required autocomplete="off" placeholder="Bridge password (from info in the Bridge CLI)" style="width:100%;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"></p>
-<div class="row"><button type="submit">Save and reconnect</button></div></form></details>
-
-<h2>${dot(s.pass.ok)} Proton Pass</h2>
-<p>${s.pass.ok ? `Connected through Facteur's Pass agent${s.pass.source === "env" ? " (token from the server settings)" : ""}.` : esc(s.pass.error ?? "Not connected.")}</p>
-${flowBlock(flows.pass, "pass")}
-<form method="post" action="/connections/pass/login"><button class="${s.pass.ok ? "" : "primary"}" type="submit">${s.pass.ok ? "Renew for a year" : "Connect Pass"}</button></form>
-<p class="muted">You sign in to Proton once; Facteur renews (or creates) its own agent and stores its token. Your session is signed out right after.</p>
-
-<h2>${dot(s.drive.signedIn)} Proton Drive</h2>
-${
-  s.drive.enabled
-    ? `<p>${s.drive.signedIn ? "Signed in." : "Not signed in."}</p>${flowBlock(flows.drive, "drive")}
-<div class="row"><form method="post" action="/connections/drive/login"><button class="${s.drive.signedIn ? "" : "primary"}" type="submit">${s.drive.signedIn ? "Sign in again" : "Sign in to Drive"}</button></form>
-${s.drive.signedIn ? `<form method="post" action="/connections/drive/logout"><button class="danger" type="submit">Sign out</button></form>` : ""}</div>`
-    : `<p class="muted">Turned off (set FACTEUR_DRIVE=true).</p>`
-}
-
-<h2>${dot(s.calendars.length > 0)} Proton Calendar</h2>
-${
-  s.calendars.length
-    ? `<table>${s.calendars
-        .map(
-          (c) =>
-            `<tr><td><strong>${esc(c.name)}</strong> <span class="muted">${esc(c.host)}</span></td><td style="text-align:right">${
-              c.fromEnv
-                ? `<span class="muted">server setting</span>`
-                : `<form method="post" action="/connections/calendars/remove"><input type="hidden" name="name" value="${esc(c.name)}"><button class="danger" type="submit">Remove</button></form>`
-            }</td></tr>`,
-        )
-        .join("")}</table>`
-    : `<p class="muted">No calendar yet.</p>`
-}
-<form method="post" action="/connections/calendars/add">
-<p><input type="text" name="name" placeholder="Name, e.g. Personnel" required maxlength="40" style="width:100%;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"></p>
-<p><input type="password" name="url" placeholder="https://calendar.proton.me/api/calendar/v1/url/…/calendar.ics?…" required autocomplete="off" style="width:100%;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"></p>
-<div class="row"><button type="submit">Add calendar</button></div></form>
-<p class="muted">In Proton Calendar: Settings → Calendars → a calendar → Share → <em>Share with anyone</em> (full view) → copy link. The link holds the calendar's key, so it's stored like a secret.</p>`;
-  const html = page("Connections · Facteur", body);
-  return busy ? html.replace("<head>", `<head><meta http-equiv="refresh" content="4">`) : html;
-}
-
-/** routes; `guard` checks the owner and same-origin, and answers if not */
-export function connectionsRouter(c: Connections, guard: (req: express.Request, res: express.Response, post: boolean) => Promise<boolean>, bridgeHint: string): Router {
+/** routes; `guard` checks the owner (and same-origin for posts), answers if not, and returns who it is */
+export function connectionsRouter(
+  c: Connections,
+  guard: (req: express.Request, res: express.Response, post: boolean) => Promise<string | undefined>,
+  bridgeHint: string,
+  signOut: boolean,
+): Router {
   const r = express.Router();
   const form = express.urlencoded({ extended: false, limit: "8kb" });
   const back = (res: express.Response) => res.redirect(303, "/connections");
 
   r.get("/connections", async (req, res) => {
-    if (!(await guard(req, res, false))) return;
-    res.send(connectionsPage(await c.status(), { drive: c.flow("drive"), pass: c.flow("pass") }, bridgeHint));
+    const who = await guard(req, res, false);
+    if (!who) return;
+    res.send(connectionsPage(await c.status(), { drive: c.flow("drive"), pass: c.flow("pass") }, bridgeHint, { owner: who, signOut }));
   });
   r.post("/connections/drive/login", async (req, res) => {
     if (!(await guard(req, res, true))) return;
@@ -345,7 +285,7 @@ export function connectionsRouter(c: Connections, guard: (req: express.Request, 
     try {
       await c.setBridgePassword(String(req.body?.password ?? ""));
     } catch (e) {
-      return void res.status(400).send(page("Connections · Facteur", `<h1>Couldn't update it</h1><p>${esc((e as Error).message)}</p><p><a href="/connections">Back</a></p>`));
+      return void res.status(400).send(errorPage("Couldn't update it", (e as Error).message, { href: "/connections", label: "Back to Connections" }));
     }
     back(res);
   });
@@ -354,7 +294,7 @@ export function connectionsRouter(c: Connections, guard: (req: express.Request, 
     try {
       c.addCalendar(String(req.body?.name ?? ""), String(req.body?.url ?? ""));
     } catch (e) {
-      return void res.status(400).send(page("Connections · Facteur", `<h1>Couldn't add it</h1><p>${esc((e as Error).message)}</p><p><a href="/connections">Back</a></p>`));
+      return void res.status(400).send(errorPage("Couldn't add it", (e as Error).message, { href: "/connections", label: "Back to Connections" }));
     }
     back(res);
   });

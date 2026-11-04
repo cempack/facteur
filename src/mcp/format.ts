@@ -33,7 +33,7 @@ export function renderSearch(r: SearchResult, query: string, tz?: string): strin
   if (!r.total) return `No messages in ${r.mailbox} match ${query}.`;
   const from = r.offset + 1;
   const to = r.offset + r.messages.length;
-  const head = `${r.total} message${r.total > 1 ? "s" : ""} in ${r.mailbox} match ${query}; showing ${from}–${to}, newest first.`;
+  const head = `${r.total} message${r.total > 1 ? "s" : ""} in ${r.mailbox} match ${query}; showing ${from}-${to}, newest first.`;
   const more = to < r.total ? `\n\nMore: call again with offset=${to}.` : "";
   const capped = r.capped ? "\n(Attachment filtering only checked the newest 1500 matches.)" : "";
   return `${head}${capped}\n\n${r.messages.map((m) => renderSummary(m, tz)).join("\n\n")}${more}`;
@@ -41,7 +41,7 @@ export function renderSearch(r: SearchResult, query: string, tz?: string): strin
 
 export function renderMailboxes(list: MailboxInfo[]): string {
   const row = (m: MailboxInfo) => {
-    const counts = m.total !== undefined ? ` — ${m.total} message${m.total === 1 ? "" : "s"}${m.unread ? `, ${m.unread} unread` : ""}` : "";
+    const counts = m.total !== undefined ? `: ${m.total} message${m.total === 1 ? "" : "s"}${m.unread ? `, ${m.unread} unread` : ""}` : "";
     return `• ${m.path}${m.role && m.role !== m.path.toLowerCase() ? ` (${m.role})` : ""}${counts}`;
   };
   const section = (title: string, items: MailboxInfo[]) => (items.length ? `${title}\n${items.map(row).join("\n")}` : "");

@@ -12,7 +12,7 @@ import { OAuthError, OAuthProvider, sign, unsign, type AuthorizeRequest } from "
 import { OAuthStore } from "./oauth/store.ts";
 import { Connections, connectionsRouter } from "./connections.ts";
 import { Owner } from "./owner.ts";
-import { consentPage, dashboardPage, errorPage, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
+import { consentPage, dashboardPage, errorPage, FONT_FILE, FONT_FILE_EXT, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
 
 type Deps = Omit<ToolContext, "client" | "scopes">;
 
@@ -38,7 +38,7 @@ export function createApp(cfg: Config, deps: Deps) {
 
   app.use((_req, res, next) => {
     res.set({
-      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
       "X-Frame-Options": "DENY",
       "X-Content-Type-Options": "nosniff",
       // same-origin, not no-referrer: with no-referrer browsers send "Origin: null"
@@ -48,6 +48,14 @@ export function createApp(cfg: Config, deps: Deps) {
     });
     next();
   });
+
+  // ---------- assets ----------
+  const font = (file: string) => (_req: Request, res: Response) => {
+    res.set({ "Cache-Control": "public, max-age=31536000, immutable", "Content-Type": "font/woff2" });
+    res.sendFile(file);
+  };
+  app.get("/assets/inter.woff2", font(FONT_FILE));
+  app.get("/assets/inter-ext.woff2", font(FONT_FILE_EXT));
 
   // ---------- health ----------
   app.get("/healthz", async (req, res) => {
@@ -212,16 +220,20 @@ export function createApp(cfg: Config, deps: Deps) {
       bridgePasswordFile: join(cfg.dataDir, "bridge", "password"),
       ...(deps.drive && { drive: deps.drive }),
     });
-    const guard = async (req: Request, res: Response, post: boolean) => {
-      if (post && !sameOrigin(req, base)) return void res.status(403).send(errorPage("Blocked", "This form must be sent from this site.")), false;
-      if (await owner.identify(req)) return true;
+    const guard = async (req: Request, res: Response, post: boolean): Promise<string | undefined> => {
+      if (post && !sameOrigin(req, base)) {
+        res.status(403).send(errorPage("Blocked", "This form must be sent from this site.", { href: "/connections", label: "Back to Connections" }));
+        return undefined;
+      }
+      const who = await owner.identify(req);
+      if (who) return who;
       if (!post && owner.mode === "password") res.send(loginPage(`/login?next=${encodeURIComponent(req.originalUrl)}`));
-      else res.status(403).send(errorPage("Not signed in", "Sign in first."));
-      return false;
+      else res.status(403).send(errorPage("Not signed in", "Sign in first.", { href: "/login", label: "Sign in" }));
+      return undefined;
     };
     const bridgeHint = process.env.FACTEUR_BRIDGE_LOGIN_HINT ?? "open the Bridge CLI in its container and run login.";
     app.use("/connections", limiter(120));
-    app.use(connectionsRouter(connections, guard, bridgeHint));
+    app.use(connectionsRouter(connections, guard, bridgeHint, owner.mode === "password"));
   }
 
   // ---------- dashboard ----------
