@@ -58,8 +58,15 @@ export function describe(e: AuditEntry): ActivityItem {
     case "move_emails":
       return it("mail", "folder-simple", `Moved ${plural(n(e.count), "message")} to ${s(e.to)}`);
     case "delete_emails": {
-      const parts = [n(e.trashed) && `${plural(n(e.trashed), "message")} to Trash`, n(e.deleted) && `${plural(n(e.deleted), "message")} deleted for good`].filter(Boolean);
-      return it("mail", "trash", parts.length ? `Moved ${parts.join(", ")}` : "Deleted messages", undefined, n(e.deleted) > 0);
+      const trashed = n(e.trashed);
+      const deleted = n(e.deleted);
+      const title =
+        trashed && deleted
+          ? `Moved ${plural(trashed, "message")} to Trash, deleted ${deleted} for good`
+          : deleted
+            ? `Deleted ${plural(deleted, "message")} for good`
+            : `Moved ${plural(trashed, "message")} to Trash`;
+      return it("mail", "trash", title, undefined, deleted > 0);
     }
     case "mark_emails": {
       const c = (e.change ?? {}) as Record<string, unknown>;
