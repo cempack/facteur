@@ -179,7 +179,8 @@ export function createApp(cfg: Config, deps: Deps) {
     res.redirect(303, next);
   });
 
-  app.get("/login", (_req, res) => void res.send(loginPage("/login?next=/")));
+  // with Cloudflare Access, Access itself is the sign-in page
+  app.get("/login", (_req, res) => void (owner.mode === "password" ? res.send(loginPage("/login?next=/")) : res.redirect(303, "/")));
   app.get("/logout", (_req, res) => {
     owner.endSession(res);
     res.redirect(303, "/");
