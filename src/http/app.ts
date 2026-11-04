@@ -41,7 +41,9 @@ export function createApp(cfg: Config, deps: Deps) {
       "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
       "X-Frame-Options": "DENY",
       "X-Content-Type-Options": "nosniff",
-      "Referrer-Policy": "no-referrer",
+      // same-origin, not no-referrer: with no-referrer browsers send "Origin: null"
+      // on form posts, which the same-origin check below has to refuse
+      "Referrer-Policy": "same-origin",
       "Cache-Control": "no-store",
     });
     next();
@@ -305,11 +307,15 @@ function hostOf(u: string): string {
   }
 }
 
-/** forms are only accepted from our own pages (Origin, or Referer as a fallback) */
-function sameOrigin(req: Request, base: string): boolean {
-  const origin = (req.headers.origin as string | undefined) ?? refererOrigin(req.headers.referer);
-  if (!origin) return true; // some browsers send neither on same-origin POSTs with no-referrer; cookies are SameSite=Lax
-  return origin === new URL(base).origin;
+/** forms are only accepted from our own pages (Origin, or Referer when Origin is missing or "null") */
+export function sameOrigin(req: Pick<Request, "headers">, base: string): boolean {
+  const own = new URL(base).origin;
+  const origin = req.headers.origin as string | undefined;
+  if (origin && origin !== "null") return origin === own;
+  const ref = refererOrigin(req.headers.referer);
+  if (ref) return ref === own;
+  // neither header: only non-browser clients do that, and they have no owner cookie (SameSite=Lax)
+  return origin === undefined;
 }
 
 function refererOrigin(ref: string | undefined): string | undefined {
