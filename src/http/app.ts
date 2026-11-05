@@ -13,7 +13,7 @@ import { OAuthStore } from "./oauth/store.ts";
 import { describe as describeActivity } from "./activity.ts";
 import { Connections, connectionsRouter } from "./connections.ts";
 import { Owner } from "./owner.ts";
-import { activityPage, consentPage, dashboardPage, errorPage, FONT_FILE, FONT_FILE_EXT, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
+import { activityPage, consentPage, dashboardPage, errorPage, FONTS, loginPage, revealConfirmPage, revealPage } from "./pages.ts";
 
 type Deps = Omit<ToolContext, "client" | "scopes">;
 
@@ -55,8 +55,7 @@ export function createApp(cfg: Config, deps: Deps) {
     res.set({ "Cache-Control": "public, max-age=31536000, immutable", "Content-Type": "font/woff2" });
     res.sendFile(file);
   };
-  app.get("/assets/inter.woff2", font(FONT_FILE));
-  app.get("/assets/inter-ext.woff2", font(FONT_FILE_EXT));
+  for (const [name, file] of Object.entries(FONTS)) app.get(`/assets/${name}`, font(file));
 
   // ---------- health ----------
   app.get("/healthz", async (req, res) => {
@@ -143,6 +142,7 @@ export function createApp(cfg: Config, deps: Deps) {
         account: deps.mail.account,
         scopes: request.scopes,
         optIn: OPT_IN_SCOPES,
+        timeZone: cfg.timeZone,
         form: signed,
         owner: who,
       }),

@@ -15,6 +15,8 @@ export interface ActivityItem {
   ok: boolean;
   /** worth a second look: secrets revealed, permanent deletes, public links */
   sensitive?: boolean;
+  /** the word on the rubber stamp for sensitive entries (SECRET, DELETED, PUBLIC…) */
+  stamp?: string;
 }
 
 const s = (v: unknown) => (typeof v === "string" ? v : v === undefined || v === null ? "" : String(v));
@@ -28,13 +30,13 @@ const quote = (t: unknown) => (s(t) ? `“${s(t)}”` : "");
 
 export function describe(e: AuditEntry): ActivityItem {
   const base = { time: new Date(e.t), client: e.client || "unknown app", ok: e.ok !== false };
-  const it = (kind: ActivityItem["kind"], icon: string, title: string, detail?: string, sensitive?: boolean): ActivityItem => ({
+  const it = (kind: ActivityItem["kind"], icon: string, title: string, detail?: string, stamp?: string | false): ActivityItem => ({
     ...base,
     kind,
     icon,
     title,
     ...(detail && { detail }),
-    ...(sensitive && { sensitive }),
+    ...(stamp && { sensitive: true, stamp }),
   });
 
   if (e.ok === false) {
@@ -66,7 +68,7 @@ export function describe(e: AuditEntry): ActivityItem {
           : deleted
             ? `Deleted ${plural(deleted, "message")} for good`
             : `Moved ${plural(trashed, "message")} to Trash`;
-      return it("mail", "trash", title, undefined, deleted > 0);
+      return it("mail", "trash", title, undefined, deleted > 0 && "Deleted");
     }
     case "mark_emails": {
       const c = (e.change ?? {}) as Record<string, unknown>;
@@ -76,18 +78,18 @@ export function describe(e: AuditEntry): ActivityItem {
     case "label_emails":
       return it("mail", "tag", `${e.action === "remove" ? "Removed" : "Added"} label ${s(e.label).replace(/^Labels\//, "")} ${e.action === "remove" ? "from" : "on"} ${plural(n(e.count), "message")}`);
     case "manage_mailbox":
-      return it("mail", "folder-simple", `${({ create: "Created", rename: "Renamed", delete: "Deleted" } as Record<string, string>)[s(e.action)] ?? "Changed"} ${s(e.kind) || "folder"} ${s(e.name)}${e.new_name ? ` to ${s(e.new_name)}` : ""}`, undefined, e.action === "delete");
+      return it("mail", "folder-simple", `${({ create: "Created", rename: "Renamed", delete: "Deleted" } as Record<string, string>)[s(e.action)] ?? "Changed"} ${s(e.kind) || "folder"} ${s(e.name)}${e.new_name ? ` to ${s(e.new_name)}` : ""}`, undefined, e.action === "delete" && "Deleted");
 
     // pass
     case "pass_reveal": {
       if (e.mode === "link") return it("pass", "link-simple", `Asked you to view a ${s(e.field)}`, s(e.reason));
       if (e.mode === "owner-page") return it("owner", "eye", `You viewed the ${s(e.field)} of ${quote(e.title)}`, `asked by ${s(e.client)}`);
-      return it("pass", "key", `Read a ${s(e.field)}`, s(e.reason), true);
+      return it("pass", "key", `Read a ${s(e.field)}`, s(e.reason), "Secret");
     }
     case "pass_create_login":
       return it("pass", "plus-circle", `Saved login ${quote(e.title)}`, [s(e.vault) && `in ${s(e.vault)}`, e.generated && "generated password"].filter(Boolean).join(", "));
     case "pass_update_item":
-      return it("pass", "pencil-simple", `Changed ${list(e.fields)} of a Pass item`, undefined, Array.isArray(e.fields) && e.fields.includes("password"));
+      return it("pass", "pencil-simple", `Changed ${list(e.fields)} of a Pass item`, undefined, Array.isArray(e.fields) && e.fields.includes("password") && "New key");
     case "pass_trash_item":
       return it("pass", "trash", e.restore ? "Restored a Pass item" : "Moved a Pass item to the trash");
 
@@ -105,17 +107,17 @@ export function describe(e: AuditEntry): ActivityItem {
     case "drive_restore":
       return it("drive", "arrow-counter-clockwise", `Restored ${list(e.paths, 2)}`);
     case "drive_share_link":
-      return it("drive", "globe-simple", `Made a public link for ${s(e.path)}`, [s(e.role), e.password && "with password", s(e.expiration) && `until ${s(e.expiration)}`].filter(Boolean).join(", "), true);
+      return it("drive", "globe-simple", `Made a public link for ${s(e.path)}`, [s(e.role), e.password && "with password", s(e.expiration) && `until ${s(e.expiration)}`].filter(Boolean).join(", "), "Public");
     case "drive_unshare_link":
       return it("drive", "link-break", `Removed the public link of ${s(e.path)}`);
     case "drive_share":
-      return it("drive", "share-network", `Shared ${s(e.path)}`, `with ${list(e.emails)}${e.role ? ` (${s(e.role)})` : ""}`, true);
+      return it("drive", "share-network", `Shared ${s(e.path)}`, `with ${list(e.emails)}${e.role ? ` (${s(e.role)})` : ""}`, "Shared");
     case "drive_unshare":
       return it("drive", "user-minus", `Stopped sharing ${s(e.path)}`, e.everyone ? "with everyone" : list(e.emails) && `with ${list(e.emails)}`);
 
     // owner actions on the pages
     case "connect":
-      return it("owner", "plugs-connected", `You connected ${s(e.client)}`, list(e.scopes, 9), Array.isArray(e.scopes) && e.scopes.includes("pass.reveal"));
+      return it("owner", "plugs-connected", `You connected ${s(e.client)}`, list(e.scopes, 9), Array.isArray(e.scopes) && e.scopes.includes("pass.reveal") && "Secrets");
     case "disconnect":
       return it("owner", "plugs", `You disconnected ${s(e.client)}`);
     case "drive_signin":
