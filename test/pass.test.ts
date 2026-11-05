@@ -36,6 +36,12 @@ describe("calendar sources", () => {
     ]);
     expect(parseSources("https://a.example/x.ics")[0]!.name).toBe("Calendar 1");
     expect(() => parseSources("Perso|http://insecure.example/x.ics")).toThrow();
+    // webcal links are https feeds under a subscribe-me label
+    expect(parseSources("Foot|webcal://ics.example/team.ics, School|WEBCALS://edt.example/a.ics")).toEqual([
+      { name: "Foot", url: "https://ics.example/team.ics" },
+      { name: "School", url: "https://edt.example/a.ics" },
+    ]);
+    expect(parseSources("X|HTTPS://a.example/x.ics")[0]!.url).toBe("https://a.example/x.ics");
   });
 });
 

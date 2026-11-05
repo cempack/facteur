@@ -431,7 +431,7 @@ ${s.drive.signedIn ? `<form method="post" action="/connections/drive/logout"><bu
 ${cals}
 <form method="post" action="/connections/calendars/add" class="form-grid">
 <label class="field">Name<input type="text" name="name" required maxlength="40" placeholder="Personnel"></label>
-<label class="field">Share link<input type="password" name="url" required autocomplete="off" placeholder="https://calendar.proton.me/..."></label>
+<label class="field">Share link<input type="password" name="url" required autocomplete="off" placeholder="https://… or webcal://…"></label>
 <button class="btn" type="submit">${icon("plus", "ic-sm")}Add</button>
 </form>
 <p class="hint" style="margin-top:10px">Read-only: Proton offers no calendar API. Links hold the calendar's key, so they're stored like secrets.</p>

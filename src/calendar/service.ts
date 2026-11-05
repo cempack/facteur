@@ -30,18 +30,32 @@ export interface CalEvent {
   status?: string;
 }
 
-/** "Personal|https://…ics, Work|https://…ics" (a name is optional) */
+/**
+ * webcal:// (and webcals://) is how calendar apps say "subscribe to this":
+ * the feed itself is plain HTTP, so it's fetched as https://. Never plain
+ * http://, since these links carry the calendar's key.
+ */
+export function normalizeCalendarUrl(url: string): string {
+  const u = url.trim().replace(/^(webcals?|https):\/\//i, "https://");
+  if (!/^https:\/\//i.test(u)) throw new Error("calendar links must start with https:// or webcal://");
+  return u;
+}
+
+/** "Personal|https://…ics, Work|webcal://…ics" (a name is optional) */
 export function parseSources(value: string | undefined): CalendarSource[] {
   if (!value) return [];
   return value
-    .split(/[\n,](?=\s*(?:[^|,\n]+\|)?https:\/\/)/)
+    .split(/[\n,](?=\s*(?:[^|,\n]+\|)?(?:https|webcals?):\/\/)/i)
     .map((s) => s.trim())
     .filter(Boolean)
     .map((s, i) => {
       const bar = s.indexOf("|");
       const [name, url] = bar > 0 && !s.slice(0, bar).includes("://") ? [s.slice(0, bar).trim(), s.slice(bar + 1).trim()] : [`Calendar ${i + 1}`, s];
-      if (!/^https:\/\//.test(url)) throw new Error(`calendar link for ${name} must be https`);
-      return { name, url };
+      try {
+        return { name, url: normalizeCalendarUrl(url) };
+      } catch {
+        throw new Error(`calendar link for ${name} must start with https:// or webcal://`);
+      }
     });
 }
 
